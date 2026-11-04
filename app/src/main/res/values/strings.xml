@@ -1,0 +1,8 @@
+<resources>
+    <string name="app_name">Root Recents</string>
+    <string name="clear_all">Clear all</string>
+    <string name="no_recents">No recent apps</string>
+    <string name="no_root">Root access not granted.\nAllow Root Recents in Magisk, then open it again.</string>
+    <string name="shortcut_settings_short">Settings</string>
+    <string name="shortcut_settings_long">Root Recents settings</string>
+</resources>
