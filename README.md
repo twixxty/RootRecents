@@ -26,8 +26,15 @@ Long-press the app icon on the home screen for **Settings**.
 ## Layouts (Settings > Layout)
 - **Cards (flat row):** no scaling, optional snapping that glides to the nearest card using your
   release velocity.
-- **Stack (iOS):** overlapping deck. Only the focused card shows its title, cards behind show just
-  their icon. Never snaps, pure momentum with a rubber band at the ends.
+- **Stack (iOS):** newer cards sit in front on the right, older ones tuck behind on the left. Stacking
+  order never changes, icons and titles stay put. Never snaps; each card follows the scroll on its own
+  spring, so fast flicks stretch the deck elastically. Scaling behind the focus is subtle.
+- **Swipe a card up (both modes):** its neighbours lift too, nearest first, each following the one before.
+  They float down when the card is dismissed and fall back with a bounce if it is released.
+- **Cards mode** ticks haptically each time a card comes into focus.
+- **Everything is adjustable** in Settings (scroll friction/speed, animation speed, bounce, stack
+  scale/spread/elasticity, lift intensity/reach/bounce). Each slider has a reset arrow, and there is a
+  Reset all settings button.
 - **Opening animation:** rise, slide in from the left, slide in from the right, zoom.
 
 ## Gestures

@@ -43,12 +43,31 @@ class SettingsActivity : Activity() {
             listOf("Rise", "Slide in from the left", "Slide in from the right", "Zoom"),
             cfg.enterStyle
         ) { cfg.enterStyle = it }
-        slider("Card size", 45, 75, cfg.cardSize, { "$it%" }) { cfg.cardSize = it }
+        slider("Card size", Config.CARD_SIZE) { "$it%" }
         toggle("Show app icon and name above cards", cfg.showLabels) { cfg.showLabels = it }
 
+        section("Scrolling")
+        slider("Momentum friction (higher = less drifty)", Config.SCROLL_FRICTION) { "$it" }
+        slider("Fling speed", Config.SCROLL_SPEED) { "$it%" }
+        slider("Drag sensitivity", Config.DRAG_SENS) { "$it%" }
+
+        section("Animation")
+        slider("Animation speed", Config.ANIM_SPEED) { "$it%" }
+        slider("Bounciness", Config.BOUNCE) { "$it%" }
+
+        section("Stack")
+        slider("Scale of cards behind (subtle)", Config.STACK_SCALE) { "$it%" }
+        slider("Spread of the deck", Config.STACK_SPREAD) { "$it%" }
+        slider("Elasticity to fast scrolling", Config.STACK_ELASTIC) { "$it%" }
+
+        section("Lifting neighbours (swipe up)")
+        slider("Lift intensity", Config.LIFT_INTENSITY) { "$it%" }
+        slider("Reach (how far the lift travels)", Config.LIFT_REACH) { "$it%" }
+        slider("Bounce when a card falls back", Config.LIFT_BOUNCE) { "$it%" }
+
         section("Background")
-        slider("Blur", 0, 100, cfg.blur, { "$it%" }) { cfg.blur = it }
-        slider("Darkening", 0, 80, cfg.dim, { "$it%" }) { cfg.dim = it }
+        slider("Blur", Config.BLUR) { "$it%" }
+        slider("Darkening", Config.DIM) { "$it%" }
 
         section("Foreground app")
         toggle("Show the app that is in the foreground", cfg.showForeground) { cfg.showForeground = it }
@@ -64,6 +83,7 @@ class SettingsActivity : Activity() {
 
         section("Feel")
         toggle("Haptic feedback", cfg.haptics) { cfg.haptics = it }
+        toggle("Tick when a card comes into focus (cards mode)", cfg.focusTick) { cfg.focusTick = it }
 
         section("Dismissing")
         toggle("Also force-stop apps when dismissed", cfg.forceStop) { cfg.forceStop = it }
@@ -77,6 +97,17 @@ class SettingsActivity : Activity() {
             startActivity(Intent(this, RecentsActivity::class.java))
         }
         button("Diagnostics (copy report)") { runDiagnostics() }
+        button("Reset all settings") {
+            AlertDialog.Builder(this)
+                .setTitle("Reset all settings?")
+                .setMessage("Every option goes back to its default.")
+                .setPositiveButton("Reset") { _, _ ->
+                    cfg.resetAll()
+                    recreate()
+                }
+                .setNegativeButton("Cancel", null)
+                .show()
+        }
         note(
             "Open from a root shell with:\nam start -a com.example.rootrecents.SHOW\n\n" +
                 "Settings are read each time recents opens."
@@ -134,14 +165,9 @@ class SettingsActivity : Activity() {
         col.addView(sw, matchWrap().apply { topMargin = dp(10); bottomMargin = dp(10) })
     }
 
-    private fun slider(
-        label: String,
-        lo: Int,
-        hi: Int,
-        value: Int,
-        fmt: (Int) -> String,
-        onChange: (Int) -> Unit
-    ) {
+    /** A slider with its current value and a small reset button that restores the default. */
+    private fun slider(label: String, spec: Config.IntSpec, fmt: (Int) -> String) {
+        val value = cfg.int(spec)
         val title = TextView(this).apply {
             text = label
             textSize = 16f
@@ -151,19 +177,30 @@ class SettingsActivity : Activity() {
             textSize = 14f
             alpha = 0.7f
         }
+        val bar = SeekBar(this)
+        bar.max = spec.hi - spec.lo
+        bar.progress = value - spec.lo
+        val reset = TextView(this).apply {
+            text = "↺"
+            textSize = 20f
+            setPadding(dp(14), 0, 0, 0)
+            setOnClickListener {
+                bar.progress = spec.def - spec.lo
+                cfg.setInt(spec, spec.def)
+                valueView.text = fmt(spec.def)
+            }
+        }
         val head = LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
             addView(title, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
             addView(valueView)
+            addView(reset)
         }
-        val bar = SeekBar(this)
-        bar.max = hi - lo
-        bar.progress = value - lo
         bar.setOnSeekBarChangeListener(object : SeekBar.OnSeekBarChangeListener {
             override fun onProgressChanged(sb: SeekBar, progress: Int, fromUser: Boolean) {
-                val v = progress + lo
+                val v = progress + spec.lo
                 valueView.text = fmt(v)
-                if (fromUser) onChange(v)
+                if (fromUser) cfg.setInt(spec, v)
             }
 
             override fun onStartTrackingTouch(sb: SeekBar) {}

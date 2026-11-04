@@ -62,11 +62,7 @@ class RecentsActivity : Activity() {
         empty = findViewById(R.id.empty)
         carousel.alpha = 0f
 
-        carousel.mode = if (config.layoutMode == 1) CarouselView.Mode.STACK else CarouselView.Mode.NORMAL
-        carousel.snap = config.snap
-        carousel.haptics = config.haptics
-        carousel.showLabels = config.showLabels
-        carousel.cardPercent = config.cardSize
+        carousel.applyConfig(config)
 
         carousel.onCardClick = { card -> openTask(card) }
         carousel.onCardLongPress = { task -> openAppInfo(task) }
