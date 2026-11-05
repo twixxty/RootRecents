@@ -136,16 +136,31 @@ class TriggerService : Service() {
 
         val v = View(this)
         v.setOnTouchListener { _, e -> onTouch(e) }
+        // Flush with the very bottom edge of the display (over the gesture bar), not above it.
+        val zone = (config.int(Config.TRIG_ZONE) * d).toInt()
+        val sw: Int
+        val sh: Int
+        if (Build.VERSION.SDK_INT >= 30) {
+            val b = wm.maximumWindowMetrics.bounds
+            sw = b.width(); sh = b.height()
+        } else {
+            val m = android.util.DisplayMetrics()
+            @Suppress("DEPRECATION")
+            wm.defaultDisplay.getRealMetrics(m)
+            sw = m.widthPixels; sh = m.heightPixels
+        }
         val params = WindowManager.LayoutParams(
-            WindowManager.LayoutParams.MATCH_PARENT,
-            (config.int(Config.TRIG_ZONE) * d).toInt(),
+            sw, zone,
             WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY,
             WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or
                 WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN or
                 WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS,
             PixelFormat.TRANSLUCENT
         )
-        params.gravity = Gravity.BOTTOM
+        params.gravity = Gravity.TOP or Gravity.START
+        params.x = 0
+        params.y = sh - zone
+        if (Build.VERSION.SDK_INT >= 30) params.fitInsetsTypes = 0
         if (Build.VERSION.SDK_INT >= 28) {
             params.layoutInDisplayCutoutMode =
                 WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_ALWAYS

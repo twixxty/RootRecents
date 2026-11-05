@@ -56,6 +56,7 @@ class SettingsActivity : Activity() {
         slider("Stack elasticity", Config.ELASTIC) { "$it%" }
         slider("Stack spread", Config.STACK_SPREAD) { "$it%" }
         slider("Neighbour lift when swiping a card up", Config.LIFT) { "$it%" }
+        slider("Gravity after swiping up to close", Config.PULL_GRAVITY) { "$it%" }
         toggle("Haptic feedback", cfg.haptics) { cfg.haptics = it }
         toggle("Tick when a card comes into focus (cards style)", cfg.focusTick) { cfg.focusTick = it }
 

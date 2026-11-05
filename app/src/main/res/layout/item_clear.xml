@@ -3,17 +3,16 @@
     android:layout_width="wrap_content"
     android:layout_height="wrap_content">
 
+    <!-- Just text, no border: only revealed when pulling past the first app -->
     <TextView
         android:id="@+id/clear_pill"
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
         android:layout_gravity="center"
-        android:background="@drawable/clear_bg"
-        android:paddingStart="22dp"
-        android:paddingTop="12dp"
-        android:paddingEnd="22dp"
-        android:paddingBottom="12dp"
+        android:padding="16dp"
+        android:shadowColor="#66000000"
+        android:shadowRadius="6"
         android:text="@string/clear_all"
         android:textColor="#FFFFFF"
-        android:textSize="15sp" />
+        android:textSize="18sp" />
 </FrameLayout>

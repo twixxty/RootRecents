@@ -30,6 +30,8 @@ class Config private constructor(private val sp: SharedPreferences) {
         val STACK_SPREAD = IntSpec("stackSpread", 50, 0, 100)
         /** How much the neighbours of a swiped-up card lift. */
         val LIFT = IntSpec("lift5", 5, 0, 100)
+        /** Gravity pulling the cards back down after swiping up to close. */
+        val PULL_GRAVITY = IntSpec("pullGravity", 50, 0, 100)
 
         // ---- opening animation / screen shape ----
         val RADIUS_DP = IntSpec("radiusDp", 28, 0, 70)
@@ -187,6 +189,9 @@ class Config private constructor(private val sp: SharedPreferences) {
 
     /** Damping ratio when neighbours fall back after an un-cleared swipe (lower = more bounce). */
     val liftBounceZeta: Float get() = (0.75f - 0.0055f * int(BOUNCE)).coerceAtLeast(0.15f)
+
+    /** Gravity for the swipe-up-to-close glide, in dp/s^2. */
+    val pullGravity: Float get() = 400f + 14f * int(PULL_GRAVITY)
 
     /** How strongly the bounce (kick) is felt, 0..1. */
     val bounceAmount: Float get() = 0.3f + int(BOUNCE) / 100f * 0.9f

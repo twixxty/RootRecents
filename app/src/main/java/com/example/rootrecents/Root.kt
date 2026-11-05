@@ -87,12 +87,24 @@ object Actions {
         }
     }
 
-    /** Brings the task's app forward in the right user (work profile apps stay in the profile). */
+    /**
+     * Brings the task's app forward in the right user (work profile apps stay in the profile).
+     * The window / transition animation scales are switched off just for the launch (and put back
+     * in the same shell command), so the app pops in instead of sliding or zooming in. Returns
+     * when the app has started (-W).
+     */
     fun launch(ctx: Context, task: RecentTask) {
-        val out = Root.execAll(
+        val cmd = "a=\$(settings get global window_animation_scale); " +
+            "t=\$(settings get global transition_animation_scale); " +
+            "[ \"\$a\" = null ] && a=1.0; [ \"\$t\" = null ] && t=1.0; " +
+            "settings put global window_animation_scale 0; " +
+            "settings put global transition_animation_scale 0; " +
             "am start -W --user ${task.userId} -n '${task.component}' " +
-                "-a android.intent.action.MAIN -c android.intent.category.LAUNCHER -f $LAUNCH_FLAGS"
-        )
+            "-a android.intent.action.MAIN -c android.intent.category.LAUNCHER -f $LAUNCH_FLAGS; " +
+            "sleep 0.35; " +
+            "settings put global window_animation_scale \$a; " +
+            "settings put global transition_animation_scale \$t"
+        val out = Root.execAll(cmd)
         if (out.contains("Error", ignoreCase = true) || out.contains("Exception")) {
             val msg = out.lines().firstOrNull { it.isNotBlank() && !it.startsWith("Starting") } ?: out
             val app = ctx.applicationContext
