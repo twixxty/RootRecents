@@ -1,11 +1,18 @@
 <?xml version="1.0" encoding="utf-8"?>
-<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+<FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
     android:layout_width="wrap_content"
     android:layout_height="wrap_content"
-    android:clipChildren="false"
-    android:orientation="vertical">
+    android:clipChildren="false">
 
-    <!-- Long-press this row for the app's system "App info" page -->
+    <ImageView
+        android:id="@+id/thumb"
+        android:layout_width="match_parent"
+        android:layout_height="300dp"
+        android:background="#1E1E1E"
+        android:contentDescription="@null"
+        android:scaleType="centerCrop" />
+
+    <!-- Stack (iOS) style: icon + name above the card -->
     <LinearLayout
         android:id="@+id/header"
         android:layout_width="match_parent"
@@ -35,11 +42,43 @@
             android:textSize="13sp" />
     </LinearLayout>
 
-    <ImageView
-        android:id="@+id/thumb"
-        android:layout_width="match_parent"
-        android:layout_height="300dp"
-        android:background="#1E1E1E"
-        android:contentDescription="@null"
-        android:scaleType="centerCrop" />
-</LinearLayout>
+    <!-- Cards (Android 16) style: a pill on top of the card -->
+    <LinearLayout
+        android:id="@+id/pill"
+        android:layout_width="wrap_content"
+        android:layout_height="44dp"
+        android:layout_gravity="top|start"
+        android:layout_marginStart="10dp"
+        android:layout_marginTop="10dp"
+        android:background="@drawable/pill_bg"
+        android:elevation="3dp"
+        android:gravity="center_vertical"
+        android:orientation="horizontal"
+        android:paddingStart="6dp"
+        android:paddingEnd="14dp">
+
+        <ImageView
+            android:id="@+id/picon"
+            android:layout_width="32dp"
+            android:layout_height="32dp"
+            android:contentDescription="@null" />
+
+        <TextView
+            android:id="@+id/plabel"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginStart="10dp"
+            android:ellipsize="end"
+            android:maxLines="1"
+            android:textColor="#1B1B1F"
+            android:textSize="15sp" />
+
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginStart="8dp"
+            android:text="&#x25BE;"
+            android:textColor="#1B1B1F"
+            android:textSize="16sp" />
+    </LinearLayout>
+</FrameLayout>

@@ -24,31 +24,39 @@ Trigger with a **root shell** command (MacroDroid shell action, gesture app, ...
 Long-press the app icon on the home screen for **Settings**.
 
 ## Layouts (Settings > Layout)
-- **Cards (flat row):** no scaling, optional snapping that glides to the nearest card using your
-  release velocity.
-- **Stack (iOS):** newer cards sit in front on the right, older ones tuck behind on the left. Stacking
-  order never changes, icons and titles stay put. Never snaps; each card follows the scroll on its own
-  spring, so fast flicks stretch the deck elastically. Scaling behind the focus is subtle.
-- **Swipe a card up (both modes):** its neighbours lift too, nearest first, each following the one before.
-  They float down when the card is dismissed and fall back with a bounce if it is released.
-- **Cards mode** ticks haptically each time a card comes into focus.
-- **Everything is adjustable** in Settings (scroll friction/speed, animation speed, bounce, stack
-  scale/spread/elasticity, lift intensity/reach/bounce). Each slider has a reset arrow, and there is a
-  Reset all settings button.
-- **Opening animation:** rise, slide in from the left, slide in from the right, zoom.
+- **Cards:** flat row, Android 16 style pill (icon, name, menu) on each card. Normal scrolling: the
+  fling carries on and slows by friction (snapping is optional and off by default). A tick on each
+  card that comes into focus.
+- **Stack (iOS):** newer cards in front on the right, older ones tucked behind on the left; stacking
+  order never changes, never snaps, and the deck stretches elastically on fast flicks.
+- Swiping a card up lifts its neighbours (nearest first). They float down if the card is closed and
+  fall back with a bounce if it is let go. Cards that fill the gap bounce a little too.
+- Pull up from the bottom of the screen: the cards lift elastically, let go far enough to close.
+- Closing slides the cards back out to the left.
+
+## Opening an app
+The card grows to fill the screen in an overlay window (blur, colour wash or nothing), taking the
+screen's corner radius (detected, or set manually with an outline preview), then fades out.
+The overlay permission is granted through root automatically.
+
+## Bottom button
+Screenshot (opens the focused app and presses the screenshot key), Clear all, or nothing. The Clear all
+card at the left end of the row can be turned off.
+
+## Bottom trigger (Settings > Bottom trigger)
+A thin overlay strip along the bottom edge. Swipe up and let go: recents. Swipe up and hold: the
+screen blurs, cards peek in from the left and follow your finger elastically (nearer cards move more,
+they shrink as you go up); let go and they spring into place. Sensitivity (zone height), swipe length
+and hold time are adjustable.
 
 ## Gestures
-- Tap a card: it grows to fullscreen and the app opens in the right profile, with Android's own
-  slide transition switched off (`FLAG_ACTIVITY_NO_ANIMATION`).
-- Swipe a card up: closes it (removes the task from recents, like stock). The others glide into the gap.
-- Long-press the icon / name above a card: that app's system App info page.
-- "Clear all" is the first item at the left end of the row.
+- Tap a card: opens the app in the right profile (no Android slide transition).
+- Swipe a card up: closes it (removes the task like stock).
+- Tap the pill (cards style): App info / Close / Force stop. Long-press icon or name: App info.
 
 ## Foreground app
-Hidden by default. When shown, its card uses a fresh screenshot taken as the switcher opens.
-"Put the launcher behind" (off by default) sends the home screen behind the switcher, like iOS.
-A truly live tile isn't possible with the launcher behind, since Android stops drawing apps that
-aren't on screen.
+Hidden by default (the most recent task is the app you were in). When shown, its card uses a fresh
+screenshot taken as the switcher opens.
 
 ## Closing without killing
 Dismiss / Clear all call the system's `removeTask` through a small root helper (`TaskRemover`),

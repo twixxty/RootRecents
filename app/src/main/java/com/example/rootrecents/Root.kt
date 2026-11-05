@@ -109,15 +109,24 @@ object Actions {
         )
     }
 
-    fun goHome() {
-        Root.exec("am start -a android.intent.action.MAIN -c android.intent.category.HOME -f 0x10010000")
+    /** The overlay window used for the opening animation needs "draw over other apps". */
+    fun ensureOverlayPermission(ctx: Context) {
+        if (android.provider.Settings.canDrawOverlays(ctx)) return
+        Root.exec("appops set ${ctx.packageName} SYSTEM_ALERT_WINDOW allow")
     }
 
-    fun bringRecentsBack(pkg: String) {
-        // NEW_TASK | NO_ANIMATION | REORDER_TO_FRONT
-        Root.exec(
-            "am start -n $pkg/.RecentsActivity -a com.example.rootrecents.SHOW " +
-                "--ez relaunch true -f 0x10030000"
-        )
+    /** Notifications permission for the trigger service's (required) foreground notification. */
+    fun grantNotifications(ctx: Context) {
+        Root.exec("pm grant ${ctx.packageName} android.permission.POST_NOTIFICATIONS")
+    }
+
+    /** Takes a screenshot the way the screenshot key does (KEYCODE_SYSRQ). */
+    fun screenshotKey() {
+        Root.exec("input keyevent 120")
+    }
+
+    /** Starts the recents screen from a place that may not be allowed to start activities. */
+    fun startRecents(extras: String = "") {
+        Root.exec("am start -n com.example.rootrecents/.RecentsActivity -a com.example.rootrecents.SHOW $extras -f 0x10010000")
     }
 }

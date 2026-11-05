@@ -119,6 +119,8 @@ class ScrollMotion(
     private val hi: Float,
     private val edgeOmega: Float,
     private val restSpeed: Float,
+    /** Extra constant deceleration (units/s^2): makes the tail stop crisply like a real scroller. */
+    private val linearDecel: Float = 0f,
     private val onUpdate: (Float) -> Unit
 ) : Motion() {
 
@@ -135,6 +137,10 @@ class ScrollMotion(
             } else {
                 val before = value
                 velocity *= keep
+                if (linearDecel > 0f) {
+                    val dv = linearDecel * h
+                    velocity = if (velocity > dv) velocity - dv else if (velocity < -dv) velocity + dv else 0f
+                }
                 value += velocity * h
                 // Crossing an edge with speed: lose most of it, like an overscrolling list.
                 if ((before in lo..hi) && (value < lo || value > hi)) velocity *= 0.35f

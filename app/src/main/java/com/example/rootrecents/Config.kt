@@ -2,6 +2,7 @@ package com.example.rootrecents
 
 import android.content.Context
 import android.content.SharedPreferences
+import android.os.Build
 import kotlin.math.exp
 
 /** User-tweakable settings, edited in [SettingsActivity]. */
@@ -17,29 +18,29 @@ class Config private constructor(private val sp: SharedPreferences) {
         // ---- look ----
         val CARD_SIZE = IntSpec("cardSize", 60, 45, 75)
         val BLUR = IntSpec("blur", 45, 0, 100)
-        val DIM = IntSpec("dim", 25, 0, 80)
+        val TINT = IntSpec("tint", 30, 0, 80)
 
-        // ---- scrolling ----
-        /** Higher = momentum dies sooner (less drifty). */
-        val SCROLL_FRICTION = IntSpec("scrollFriction", 45, 1, 100)
-        /** How strongly a fling is carried (percent of the finger's release speed). */
-        val SCROLL_SPEED = IntSpec("scrollSpeed", 100, 40, 200)
-        /** How far the content moves per finger movement (percent). */
-        val DRAG_SENS = IntSpec("dragSens", 100, 60, 160)
-
-        // ---- animation feel ----
+        // ---- the few "feel" sliders that drive everything ----
+        /** Higher = momentum dies sooner. */
+        val SCROLL_FRICTION = IntSpec("scrollFriction2", 35, 1, 100)
         val ANIM_SPEED = IntSpec("animSpeed", 100, 50, 200)
         val BOUNCE = IntSpec("bounce", 40, 0, 100)
-
-        // ---- stack mode ----
-        val STACK_SCALE = IntSpec("stackScale", 30, 0, 100)
+        /** Stack deck elasticity. */
+        val ELASTIC = IntSpec("stackElastic", 50, 0, 100)
         val STACK_SPREAD = IntSpec("stackSpread", 50, 0, 100)
-        val STACK_ELASTIC = IntSpec("stackElastic", 50, 0, 100)
+        /** How much the neighbours of a swiped-up card lift. */
+        val LIFT = IntSpec("lift5", 5, 0, 100)
 
-        // ---- neighbours lifting while a card is swiped up ----
-        val LIFT_INTENSITY = IntSpec("liftIntensity", 35, 0, 100)
-        val LIFT_REACH = IntSpec("liftReach", 50, 0, 100)
-        val LIFT_BOUNCE = IntSpec("liftBounce", 40, 0, 100)
+        // ---- opening animation / screen shape ----
+        val RADIUS_DP = IntSpec("radiusDp", 28, 0, 70)
+
+        // ---- bottom trigger ----
+        /** Height of the touch zone along the bottom edge, in dp (bigger = easier to hit). */
+        val TRIG_ZONE = IntSpec("trigZone", 24, 8, 80)
+        /** How far (dp) you swipe up before it counts. */
+        val TRIG_LENGTH = IntSpec("trigLength", 70, 20, 250)
+        /** How long (ms) you hold still after swiping up for the peek to start. */
+        val TRIG_HOLD = IntSpec("trigHold", 350, 100, 1200)
     }
 
     fun int(s: IntSpec): Int = sp.getInt(s.key, s.def).coerceIn(s.lo, s.hi)
@@ -57,7 +58,7 @@ class Config private constructor(private val sp: SharedPreferences) {
 
     /** Normal mode only: settle on a card after scrolling. The stack never snaps. */
     var snap: Boolean
-        get() = sp.getBoolean("snap", true)
+        get() = sp.getBoolean("snap", false)
         set(v) = sp.edit().putBoolean("snap", v).apply()
 
     /** 0 rise, 1 slide from left, 2 slide from right, 3 zoom */
@@ -69,17 +70,19 @@ class Config private constructor(private val sp: SharedPreferences) {
         get() = sp.getBoolean("showForeground", false)
         set(v) = sp.edit().putBoolean("showForeground", v).apply()
 
-    /**
-     * Only when the foreground app is shown: put the launcher behind the switcher (like iOS, where
-     * the home screen is behind the cards) and give the foreground card a fresh screenshot.
-     */
-    var launcherBehind: Boolean
-        get() = sp.getBoolean("launcherBehind", false)
-        set(v) = sp.edit().putBoolean("launcherBehind", v).apply()
-
     var showLabels: Boolean
         get() = sp.getBoolean("showLabels", true)
         set(v) = sp.edit().putBoolean("showLabels", v).apply()
+
+    /** 0 = Screenshot button, 1 = Clear all button, 2 = nothing, below the cards. */
+    var bottomButton: Int
+        get() = sp.getInt("bottomButton", 0)
+        set(v) = sp.edit().putInt("bottomButton", v).apply()
+
+    /** The "Clear all" card at the left end of the row. */
+    var clearLeft: Boolean
+        get() = sp.getBoolean("clearLeft", true)
+        set(v) = sp.edit().putBoolean("clearLeft", v).apply()
 
     /** Master switch for every haptic. */
     var haptics: Boolean
@@ -105,6 +108,38 @@ class Config private constructor(private val sp: SharedPreferences) {
     val neverStopSet: Set<String>
         get() = neverStop.split(',', ' ', '\n').map { it.trim() }.filter { it.isNotEmpty() }.toSet()
 
+    // ---- tint / open animation ----
+
+    /** 0 = Material You accent, 1 = custom colour. */
+    var tintMode: Int
+        get() = sp.getInt("tintMode", 0)
+        set(v) = sp.edit().putInt("tintMode", v).apply()
+
+    var tintCustom: Int
+        get() = sp.getInt("tintCustom", 0xFF1B2A41.toInt())
+        set(v) = sp.edit().putInt("tintCustom", v).apply()
+
+    /** What happens to the card as it fills the screen: 0 blur, 1 colour wash, 2 nothing. */
+    var openEffect: Int
+        get() = sp.getInt("openEffect", 0)
+        set(v) = sp.edit().putInt("openEffect", v).apply()
+
+    /** Detect the screen's corner radius automatically (Android 12+), else use [RADIUS_DP]. */
+    var radiusAuto: Boolean
+        get() = sp.getBoolean("radiusAuto", true)
+        set(v) = sp.edit().putBoolean("radiusAuto", v).apply()
+
+    // ---- bottom trigger ----
+
+    var triggerEnabled: Boolean
+        get() = sp.getBoolean("triggerEnabled", false)
+        set(v) = sp.edit().putBoolean("triggerEnabled", v).apply()
+
+    /** Swiping up and holding shows the peek; off = a swipe up just opens recents. */
+    var triggerHold: Boolean
+        get() = sp.getBoolean("triggerHoldOn", true)
+        set(v) = sp.edit().putBoolean("triggerHoldOn", v).apply()
+
     // ---- derived values used by the physics ----
 
     val blur: Int get() = int(BLUR)
@@ -113,13 +148,25 @@ class Config private constructor(private val sp: SharedPreferences) {
     /** Blur radius in pixels for window-level blur-behind. */
     val blurRadiusPx: Float get() = blur * 1.6f
 
-    val dimAlpha: Float get() = int(DIM) / 100f
+    val tintAlpha: Float get() = int(TINT) / 100f
+
+    /** The tint colour (opaque): Material You accent or the user's choice. */
+    fun tintColor(ctx: Context): Int {
+        if (tintMode == 0 && Build.VERSION.SDK_INT >= 31) {
+            try {
+                return ctx.getColor(android.R.color.system_accent1_700) or 0xFF000000.toInt()
+            } catch (e: Exception) {
+                // fall through
+            }
+        }
+        return tintCustom or 0xFF000000.toInt()
+    }
 
     /** Momentum decay per second (velocity *= e^-decay each second). */
     val decay: Float get() = 1.5f + int(SCROLL_FRICTION) * 0.12f
 
-    val velocityScale: Float get() = int(SCROLL_SPEED) / 100f
-    val dragScale: Float get() = int(DRAG_SENS) / 100f
+    val velocityScale: Float get() = 1f
+    val dragScale: Float get() = 1f
 
     /** Multiplies every spring's natural frequency: >1 = quicker animations. */
     val omegaScale: Float get() = int(ANIM_SPEED) / 100f
@@ -127,17 +174,20 @@ class Config private constructor(private val sp: SharedPreferences) {
     /** Damping ratio for general springs: 1 = no overshoot, lower = more bounce. */
     val zeta: Float get() = (1.02f - int(BOUNCE) * 0.0046f).coerceAtMost(1f)
 
-    /** Per-card scale falloff behind the focused card in stack mode (kept subtle). */
-    val stackScaleK: Float get() = int(STACK_SCALE) * 0.001f
+    /** Per-card scale falloff behind the focused card in stack mode: kept subtle. */
+    val stackScaleK: Float get() = 0.012f
     val stackSpread: Float get() = int(STACK_SPREAD) / 100f
-    val stackElastic: Float get() = int(STACK_ELASTIC) / 100f
+    val stackElastic: Float get() = int(ELASTIC) / 100f
 
-    /** How much of the drag the nearest neighbours lift (further ones follow the chain). */
-    val liftIntensity: Float get() = int(LIFT_INTENSITY) / 100f * 0.8f
+    /** Fraction of the drag the nearest neighbours lift (further ones follow the chain). */
+    val liftIntensity: Float get() = int(LIFT) / 100f * 0.8f
 
     /** Fraction of the lift passed on to each next-further card. */
-    val liftPassOn: Float get() = exp(-(2.0f - 0.018f * int(LIFT_REACH)))
+    val liftPassOn: Float get() = exp(-1.1f)
 
     /** Damping ratio when neighbours fall back after an un-cleared swipe (lower = more bounce). */
-    val liftBounceZeta: Float get() = (0.85f - 0.0065f * int(LIFT_BOUNCE)).coerceAtLeast(0.15f)
+    val liftBounceZeta: Float get() = (0.75f - 0.0055f * int(BOUNCE)).coerceAtLeast(0.15f)
+
+    /** How strongly the bounce (kick) is felt, 0..1. */
+    val bounceAmount: Float get() = 0.3f + int(BOUNCE) / 100f * 0.9f
 }

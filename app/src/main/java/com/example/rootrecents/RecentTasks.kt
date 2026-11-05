@@ -58,6 +58,7 @@ object RecentTasks {
         val visible: Boolean?,
         val type: String?
     ) {
+        val isHome: Boolean get() = type == "home"
         val bestGuessUser: Int get() = headerUser ?: blockUser ?: effUser ?: 0
     }
 
@@ -69,13 +70,17 @@ object RecentTasks {
         showForeground: Boolean,
         liveShot: Bitmap?
     ): RecentsResult {
-        val parsed = parse(Root.exec("dumpsys activity recents"), ctx.packageName)
+        val all = parse(Root.exec("dumpsys activity recents"), ctx.packageName)
         val handles = userHandles(ctx)
 
+        // Our own task is excluded from recents, so the most recent entry is the app that was in
+        // front when the switcher opened (unless that was the home screen).
+        val first = all.firstOrNull()
+        val fgId = if (first != null && !first.isHome && first.visible != false) first.id else -1
+        val parsed = all.filter { !it.isHome }
+
         val wanted = parsed.filter { p ->
-            !hidden.contains(p.id.toString()) &&
-                // The app that was in front when the overlay opened is "visible" behind us.
-                (showForeground || p.visible != true)
+            !hidden.contains(p.id.toString()) && (showForeground || p.id != fgId)
         }
 
         // Each snapshot read spawns `su`, so do them in parallel.
@@ -94,7 +99,7 @@ object RecentTasks {
             val userId = snap.user ?: p.bestGuessUser
             val res = resolve(ctx, p.pkg, userId, handles[userId])
             if (res != null) {
-                val isFg = p.visible == true
+                val isFg = p.id == fgId
                 var thumb = snap.bitmap
                 if (isFg && liveShot != null && !liveUsed) {
                     thumb = liveShot
@@ -122,7 +127,7 @@ object RecentTasks {
     /** Human-readable dump of what was parsed, for the Diagnostics button in settings. */
     fun debugReport(ctx: Context): String {
         val dump = Root.exec("dumpsys activity recents")
-        val parsed = parse(dump, ctx.packageName)
+        val parsed = parse(dump, ctx.packageName).filter { !it.isHome }
         val sb = StringBuilder()
         sb.append("Parsed ${parsed.size} tasks\n\n")
         for (p in parsed.take(12)) {
@@ -215,7 +220,7 @@ object RecentTasks {
                 j++
             }
 
-            if (id != null && pkg != null && cls != null && type != "home" && pkg != ownPkg) {
+            if (id != null && pkg != null && cls != null && pkg != ownPkg) {
                 out.add(Parsed(id, headerUser, blockUser, effUser, pkg, cls, visible, type))
             }
             i = j

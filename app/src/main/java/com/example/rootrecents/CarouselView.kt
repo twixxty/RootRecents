@@ -2,6 +2,7 @@ package com.example.rootrecents
 
 import android.content.Context
 import android.graphics.Outline
+import android.graphics.RectF
 import android.util.AttributeSet
 import android.view.HapticFeedbackConstants
 import android.view.LayoutInflater
@@ -22,17 +23,15 @@ import kotlin.math.roundToInt
 import kotlin.math.tanh
 
 /**
- * The app switcher itself. Instead of a RecyclerView + snap helper (which animates with fixed
- * timings and causes a hitch when a fling hands over to the snap), every card is placed from one
- * continuous scroll position [p] and every movement is a physics [Motion].
+ * The app switcher itself. Every card is placed from one continuous scroll position [p] and every
+ * movement is a physics [Motion] (no tweens, no RecyclerView).
  *
- *  - NORMAL mode: a flat row of cards, nothing scaled, optional snapping.
- *  - STACK mode: iOS-style deck. Newer cards (to the right) sit in front of the focused card, older
- *    ones (to the left) are tucked behind it. Stacking order never changes. Never snaps, and each
- *    card follows the scroll on its own spring so quick flicks stretch the deck elastically.
+ *  - NORMAL mode: a flat row of cards with an Android 16 style pill on each card.
+ *  - STACK mode: iOS-style deck. Newer cards (right) sit in front of the focused card, older ones
+ *    (left) are tucked behind it. Stacking order never changes and it never snaps.
  *
- * In both modes, dragging a card upward lifts its neighbours (nearest first, each one following
- * the one before it), and they settle back down when the card is released.
+ * Extras in both modes: neighbours of a card swiped up lift with it, pulling up from the bottom
+ * closes, and a "peek" mode lets the bottom trigger drag the cards around while held.
  */
 class CarouselView @JvmOverloads constructor(ctx: Context, attrs: AttributeSet? = null) :
     FrameLayout(ctx, attrs) {
@@ -45,19 +44,23 @@ class CarouselView @JvmOverloads constructor(ctx: Context, attrs: AttributeSet? 
         val icon: ImageView? = view.findViewById(R.id.icon)
         val label: TextView? = view.findViewById(R.id.label)
         val thumb: ImageView? = view.findViewById(R.id.thumb)
+        val pill: View? = view.findViewById(R.id.pill)
+        val picon: ImageView? = view.findViewById(R.id.picon)
+        val plabel: TextView? = view.findViewById(R.id.plabel)
 
         var slot = 0
         var dragY = 0f
         var lift = 0f
         var liftV = 0f
-        var q = 0f // stack mode: this card's own, springy view of the scroll position
-        var qv = 0f
         var flipX = 0f
         var flipS = 1f
         var ex = 0f
         var ey = 0f
         var es = 1f
         var ea = 1f
+        var exv = 0f
+        var eyv = 0f
+        var esv = 0f
         var openT = 0f
         var leaving = false
         var tmpX = 0f
@@ -70,22 +73,22 @@ class CarouselView @JvmOverloads constructor(ctx: Context, attrs: AttributeSet? 
 
     // ---- configuration: call applyConfig() before setTasks() ----
     var mode = Mode.NORMAL
-    var snap = true
+    var snap = false
     var haptics = true
     var focusTick = true
     var showLabels = true
+    var hasClear = true
     var cardPercent = 60
-    private var decay = 6.9f
-    private var velScale = 1f
-    private var dragScale = 1f
+    private var decay = 5.7f
     private var omegaScale = 1f
     private var zeta = 0.84f
-    private var stackScaleK = 0.03f
+    private var stackScaleK = 0.012f
     private var stackSpread = 0.5f
     private var stackElastic = 0.5f
-    private var liftI = 0.28f
+    private var liftI = 0.04f
     private var liftPassOn = 0.33f
-    private var liftBounceZeta = 0.6f
+    private var liftBounceZeta = 0.5f
+    private var bounceAmount = 0.5f
 
     fun applyConfig(c: Config) {
         mode = if (c.layoutMode == 1) Mode.STACK else Mode.NORMAL
@@ -93,10 +96,9 @@ class CarouselView @JvmOverloads constructor(ctx: Context, attrs: AttributeSet? 
         haptics = c.haptics
         focusTick = c.focusTick
         showLabels = c.showLabels
+        hasClear = c.clearLeft
         cardPercent = c.cardSize
         decay = c.decay
-        velScale = c.velocityScale
-        dragScale = c.dragScale
         omegaScale = c.omegaScale
         zeta = c.zeta
         stackScaleK = c.stackScaleK
@@ -105,15 +107,18 @@ class CarouselView @JvmOverloads constructor(ctx: Context, attrs: AttributeSet? 
         liftI = c.liftIntensity
         liftPassOn = c.liftPassOn
         liftBounceZeta = c.liftBounceZeta
+        bounceAmount = c.bounceAmount
     }
 
     // ---- callbacks ----
     var onCardClick: ((Card) -> Unit)? = null
+    var onPillClick: ((Card) -> Unit)? = null
     var onCardLongPress: ((RecentTask) -> Unit)? = null
     var onClearClick: (() -> Unit)? = null
     var onEmptyTap: (() -> Unit)? = null
     var onDismissed: ((List<RecentTask>) -> Unit)? = null
     var onAllGone: (() -> Unit)? = null
+    var onPullClose: (() -> Unit)? = null
 
     private val dm = resources.displayMetrics
     private fun dp(v: Float) = v * dm.density
@@ -124,15 +129,20 @@ class CarouselView @JvmOverloads constructor(ctx: Context, attrs: AttributeSet? 
     private var p = 0f
     private var scrollM: Motion? = null
 
+    // stack mode: a single "soft" scroll position that lags behind p; cards further from the focus
+    // follow it more, so quick flicks stretch the deck.
+    private var sq = 0f
+    private var sqv = 0f
+
     // geometry
     private var cw = 0
     private var cardH = 0
     private var headerH = 0
     private var thumbH = 0
     private var topPad = 0
-    private var pitchN = 0f   // normal mode: distance between card centres
-    private var pitchS = 0f   // stack mode: how far a card to the right of focus sits per step
-    private var leftMax = 0f  // stack mode: how far the deck behind the focused card fans out
+    private var pitchN = 0f
+    private var pitchS = 0f
+    private var leftMax = 0f
 
     // outputs of place()
     private var outX = 0f
@@ -146,6 +156,20 @@ class CarouselView @JvmOverloads constructor(ctx: Context, attrs: AttributeSet? 
     private var openS = 1f
     private var openY = 0f
     private var goneNotified = false
+
+    // pulling up from the bottom
+    private var pullRaw = 0f
+    private var pullY = 0f
+    private var pullM: Motion? = null
+
+    // peek (bottom trigger hold)
+    private var peeking = false
+    private var peekReleased = false
+    private var peekBase = 0f
+    private var peekFx = 0f
+    private var peekFy = 0f
+    private var peekDx = 0f
+    private var peekDy = 0f
 
     // lift of the neighbours of a dragged card
     private var liftSrc: Card? = null
@@ -192,6 +216,7 @@ class CarouselView @JvmOverloads constructor(ctx: Context, attrs: AttributeSet? 
         private const val G_SCROLL = 2
         private const val G_CARD = 3
         private const val G_CONSUMED = 4
+        private const val G_PULL = 5
         private const val SUBSTEP = 1f / 240f
     }
 
@@ -202,7 +227,7 @@ class CarouselView @JvmOverloads constructor(ctx: Context, attrs: AttributeSet? 
         val h = dm.heightPixels
         cw = (w * cardPercent / 100f).toInt()
         thumbH = (cw.toLong() * h / w).toInt()
-        headerH = dp(40f).toInt()
+        headerH = if (mode == Mode.STACK) dp(40f).toInt() else 0
         cardH = headerH + thumbH
         topPad = (h - cardH) / 2
         pitchN = cw + dp(14f)
@@ -223,20 +248,20 @@ class CarouselView @JvmOverloads constructor(ctx: Context, attrs: AttributeSet? 
         fadeOthers = 0f
         openingCard = null
         liftSrc = null
+        pullY = 0f
+        peeking = false
 
         val inflater = LayoutInflater.from(context)
-        addCard(Card(inflater.inflate(R.layout.item_clear, this, false), null))
+        if (hasClear) addCard(Card(inflater.inflate(R.layout.item_clear, this, false), null))
         for (t in tasks) {
             val c = Card(inflater.inflate(R.layout.item_task, this, false), t)
             bind(c)
             addCard(c)
         }
         cards.forEachIndexed { i, c -> c.slot = i }
-        p = (cards.size - 1).toFloat()
-        for (c in cards) {
-            c.q = p
-            c.qv = 0f
-        }
+        p = max(0, cards.size - 1).toFloat()
+        sq = p
+        sqv = 0f
         lastFocus = p.roundToInt()
         requestLayout()
         applyPositions()
@@ -249,14 +274,23 @@ class CarouselView @JvmOverloads constructor(ctx: Context, attrs: AttributeSet? 
 
     private fun bind(c: Card) {
         val t = c.task ?: return
-        val header = c.header!!
-        header.layoutParams.height = headerH
-        header.visibility = if (showLabels) View.VISIBLE else View.INVISIBLE
+        val stack = mode == Mode.STACK
+
+        c.header!!.layoutParams.height = headerH
+        c.header.visibility = if (stack && showLabels) View.VISIBLE else View.GONE
         c.label!!.text = t.label
         c.icon!!.setImageDrawable(t.icon)
 
+        c.pill!!.visibility = if (!stack && showLabels) View.VISIBLE else View.GONE
+        c.plabel!!.text = t.label
+        c.plabel.maxWidth = (cw - dp(140f)).toInt()
+        c.picon!!.setImageDrawable(t.icon)
+
         val th = c.thumb!!
-        th.layoutParams.height = thumbH
+        (th.layoutParams as FrameLayout.LayoutParams).apply {
+            topMargin = headerH
+            height = thumbH
+        }
         val radius = dp(26f)
         th.outlineProvider = object : ViewOutlineProvider() {
             override fun getOutline(view: View, outline: Outline) {
@@ -297,15 +331,18 @@ class CarouselView @JvmOverloads constructor(ctx: Context, attrs: AttributeSet? 
 
     // ================================================================ layout maths
 
-    /** The scroll position this card is drawn at (stack cards each have their own springy one). */
-    private fun posOf(c: Card) = if (mode == Mode.STACK) c.q else p
+    /** The scroll position this card is drawn at. */
+    private fun posOf(c: Card): Float {
+        if (mode != Mode.STACK) return p
+        // The card in focus follows exactly; cards further away trail the soft position.
+        val w = (abs(c.slot - p) / 3f).coerceAtMost(1f)
+        return p + (sq - p) * w
+    }
 
     /**
-     * Where a card [d] steps away from the focus goes (horizontal offset from the screen centre and
-     * scale). Fills outX / outS.
-     *
-     * Stack: cards to the right (newer) step out linearly and overlap the focused card a little,
-     * cards to the left (older) tuck behind it and bunch up towards the screen edge.
+     * Where a card [d] steps away from the focus goes (offset from the screen centre and scale).
+     * Fills outX / outS. Stack: right cards step out linearly, left cards bunch up behind. The two
+     * halves meet with the same slope so a scroll never kinks at the focus.
      */
     private fun place(d: Float) {
         if (mode == Mode.NORMAL) {
@@ -316,29 +353,30 @@ class CarouselView @JvmOverloads constructor(ctx: Context, attrs: AttributeSet? 
             outS = 1f
         } else {
             val ad = -d
-            val s = max(0.82f, 1f - stackScaleK * ad)
-            val leftEdge = -leftMax * (1f - exp(-1.35f * ad))
+            val s = max(0.9f, 1f - stackScaleK * ad)
+            val k = pitchS / leftMax
             outS = s
-            outX = leftEdge - (1f - s) * cw / 2f
+            outX = -leftMax * (1f - exp(-k * ad)) - (1f - s) * cw / 2f
         }
     }
 
     private fun applyPositions() {
+        val pullS = (-pullY / dm.heightPixels * 0.45f).coerceIn(0f, 0.12f)
         for (c in cards) {
             val d = c.slot - posOf(c)
             place(d)
             var x = outX + c.flipX + c.ex
-            var s = outS * c.flipS * c.es
-            var y = c.dragY + c.ey + c.lift
+            var s = outS * c.flipS * c.es * (1f - pullS)
+            var y = c.dragY + c.ey + c.lift + pullY
             var a = c.ea
             val v = c.view
 
             if (mode == Mode.STACK) {
                 val label = c.label
                 if (label != null) {
-                    // The title stays while a card is at or in front of the focus (to the right),
-                    // and fades out only as it is tucked behind to the left.
-                    label.alpha = if (d >= 0f) 1f else (1f + d * 1.6f).coerceIn(0f, 1f)
+                    // The title stays while a card is at or in front of the focus, and fades out
+                    // only as the card is tucked behind to the left.
+                    c.header?.alpha = if (d >= 0f) 1f else (1f + d * 1.6f).coerceIn(0f, 1f)
                 }
                 if (d < 0f) a *= 1f - ((-d) - 4f).coerceIn(0f, 2f) / 2f
             }
@@ -351,6 +389,7 @@ class CarouselView @JvmOverloads constructor(ctx: Context, attrs: AttributeSet? 
                     y += (openY - y) * t
                     s += (openS - s) * t
                     c.header?.alpha = (1f - t * 3f).coerceIn(0f, 1f)
+                    c.pill?.alpha = (1f - t * 3f).coerceIn(0f, 1f)
                 } else {
                     a *= 1f - fadeOthers
                 }
@@ -391,34 +430,25 @@ class CarouselView @JvmOverloads constructor(ctx: Context, attrs: AttributeSet? 
         }
     }
 
-    /**
-     * Stack mode: every card chases the scroll position on its own spring. Cards far from the
-     * focus are looser, so a quick flick stretches the deck and it springs back together.
-     */
+    /** Stack mode: the soft position chases the real one on a spring (looser = more elastic). */
     private val followMotion = object : Motion() {
         override fun step(dt: Float): Boolean {
             val n = max(1, ceil(dt / SUBSTEP).toInt())
             val h = dt / n
-            var moving = false
-            for (c in cards) {
-                val dist = min(abs(c.slot - p), 5f)
-                val tau = 0.0125f + stackElastic * (0.012f + 0.035f * dist)
-                val omega = min(80f, 1f / tau)
-                val zt = 0.85f - 0.2f * stackElastic
-                for (i in 0 until n) {
-                    val a = omega * omega * (p - c.q) - 2f * zt * omega * c.qv
-                    c.qv += a * h
-                    c.q += c.qv * h
-                }
-                if (abs(p - c.q) > 0.0008f || abs(c.qv) > 0.01f) moving = true
+            val tau = 0.012f + stackElastic * 0.05f
+            val omega = min(80f, 1f / tau)
+            val zt = 0.85f - 0.25f * stackElastic
+            for (i in 0 until n) {
+                val a = omega * omega * (p - sq) - 2f * zt * omega * sqv
+                sqv += a * h
+                sq += sqv * h
             }
-            if (!moving) {
-                for (c in cards) {
-                    c.q = p
-                    c.qv = 0f
-                }
+            if (abs(p - sq) < 0.0008f && abs(sqv) < 0.01f) {
+                sq = p
+                sqv = 0f
+                return false
             }
-            return moving
+            return true
         }
     }
 
@@ -454,13 +484,14 @@ class CarouselView @JvmOverloads constructor(ctx: Context, attrs: AttributeSet? 
             while (i >= 0 && i < cards.size) {
                 val c = cards[i]
                 val target = if (prev == null) input else prev.lift * liftPassOn
-                val omega = liftOmega * max(0.5f, 1f - 0.08f * k)
+                // nearer cards are stiffer and react first
+                val omega = liftOmega * max(0.5f, 1f - 0.1f * k)
                 for (j in 0 until n) {
                     val acc = -omega * omega * (c.lift - target) - 2f * liftZeta * omega * c.liftV
                     c.liftV += acc * h
                     c.lift += c.liftV * h
                 }
-                if (abs(c.lift - target) > 0.3f || abs(c.liftV) > 3f) moving = true
+                if (abs(c.lift - target) > 0.2f || abs(c.liftV) > 2f) moving = true
                 prev = c
                 i += dir
                 k++
@@ -477,9 +508,26 @@ class CarouselView @JvmOverloads constructor(ctx: Context, attrs: AttributeSet? 
         physics.start(liftMotion)
     }
 
-    private fun liftBounceBack() {
-        liftZeta = liftBounceZeta // falls back with a bounce
-        liftOmega = 26f * omegaScale
+    /** Released without clearing: the neighbours fall back down and bounce, nearest first. */
+    private fun liftBounceBack(c: Card) {
+        val idx = cards.indexOf(c)
+        liftAnchor = if (idx >= 0) idx else liftAnchor
+        liftSrc = null
+        liftZeta = liftBounceZeta
+        liftOmega = 24f * omegaScale
+        // A downward kick makes the fall overshoot even when the lift itself was small.
+        val strength = (abs(c.dragY) / (cardH * 0.15f)).coerceIn(0f, 1f)
+        val kick = dp(150f) * bounceAmount * strength
+        var k = 0
+        for (dir in intArrayOf(-1, 1)) {
+            var i = if (dir < 0) idx - 1 else idx + 1
+            k = 0
+            while (i >= 0 && i < cards.size) {
+                cards[i].liftV += kick * exp(-0.5f * k)
+                i += dir
+                k++
+            }
+        }
         physics.start(liftMotion)
     }
 
@@ -492,7 +540,7 @@ class CarouselView @JvmOverloads constructor(ctx: Context, attrs: AttributeSet? 
 
     // ================================================================ touch
 
-    private fun pitchF() = (if (mode == Mode.STACK) pitchS else pitchN) / dragScale
+    private fun pitchF() = if (mode == Mode.STACK) pitchS else pitchN
 
     private fun localX(c: Card, x: Float): Float {
         val v = c.view
@@ -525,11 +573,24 @@ class CarouselView @JvmOverloads constructor(ctx: Context, attrs: AttributeSet? 
         return best
     }
 
-    /** The "Clear all" pill only reacts near the pill, not on its whole card-sized slot. */
+    /** The "Clear all" card only reacts near its button, not on its whole card-sized slot. */
     private fun inPill(c: Card, x: Float, y: Float): Boolean {
         val lx = localX(c, x)
         val ly = localY(c, y)
-        return abs(lx - cw / 2f) < dp(90f) && abs(ly - (headerH + thumbH / 2f)) < dp(44f)
+        return abs(lx - cw / 2f) < dp(90f) && abs(ly - cardH / 2f) < dp(44f)
+    }
+
+    /** Is this point on the icon/name part of the card? */
+    private fun inHeader(c: Card, x: Float, y: Float): Boolean {
+        if (c.task == null) return false
+        val lx = localX(c, x)
+        val ly = localY(c, y)
+        return if (mode == Mode.STACK) {
+            ly <= headerH
+        } else {
+            val pill = c.pill ?: return false
+            pill.visibility == View.VISIBLE && lx <= pill.right + dp(6f) && ly <= pill.bottom + dp(6f)
+        }
     }
 
     private fun haptic() {
@@ -544,9 +605,10 @@ class CarouselView @JvmOverloads constructor(ctx: Context, attrs: AttributeSet? 
                 wasScrolling = scrollM != null
                 physics.cancel(scrollM)
                 scrollM = null
+                physics.cancel(pullM)
                 hit = hitTest(e.x, e.y)
                 hit?.let { physics.cancel(it.dragM) } // grab a card that is still springing back
-                hitHeader = hit?.let { it.task != null && localY(it, e.y) <= headerH } ?: false
+                hitHeader = hit?.let { inHeader(it, e.x, e.y) } ?: false
                 tracker?.recycle()
                 tracker = VelocityTracker.obtain().also { it.addMovement(e) }
                 gesture = G_UNDECIDED
@@ -563,7 +625,13 @@ class CarouselView @JvmOverloads constructor(ctx: Context, attrs: AttributeSet? 
                         val dy = e.y - downY
                         if (abs(dx) > slop || abs(dy) > slop) {
                             removeCallbacks(longPress)
-                            gesture = if (hit?.task != null && abs(dy) > abs(dx)) G_CARD else G_SCROLL
+                            val inBottom = downY > height - dp(100f)
+                            gesture = when {
+                                inBottom && dy < 0f && abs(dy) > abs(dx) -> G_PULL
+                                hit?.task != null && abs(dy) > abs(dx) -> G_CARD
+                                else -> G_SCROLL
+                            }
+                            if (gesture == G_PULL) pullRaw = 0f
                             parent?.requestDisallowInterceptTouchEvent(true)
                             lastX = e.x // absorb the slop so the content doesn't jump
                             lastY = e.y
@@ -577,6 +645,11 @@ class CarouselView @JvmOverloads constructor(ctx: Context, attrs: AttributeSet? 
 
                     G_CARD -> {
                         hit?.let { dragCardBy(it, e.y - lastY) }
+                        lastY = e.y
+                    }
+
+                    G_PULL -> {
+                        pullBy(e.y - lastY)
                         lastY = e.y
                     }
                 }
@@ -596,6 +669,7 @@ class CarouselView @JvmOverloads constructor(ctx: Context, attrs: AttributeSet? 
 
                     G_SCROLL -> releaseScroll(vx)
                     G_CARD -> hit?.let { releaseCard(it, vy) }
+                    G_PULL -> releasePull(vy)
                 }
                 gesture = G_IDLE
                 tracker?.recycle()
@@ -611,6 +685,7 @@ class CarouselView @JvmOverloads constructor(ctx: Context, attrs: AttributeSet? 
         when {
             c == null -> onEmptyTap?.invoke()
             c.isClear -> if (inPill(c, x, y)) onClearClick?.invoke() else onEmptyTap?.invoke()
+            mode == Mode.NORMAL && hitHeader -> onPillClick?.invoke(c)
             else -> onCardClick?.invoke(c)
         }
     }
@@ -638,21 +713,36 @@ class CarouselView @JvmOverloads constructor(ctx: Context, attrs: AttributeSet? 
         applyPositions()
     }
 
+    /**
+     * A normal scroller: the fling carries on with the finger's speed and slows down by friction.
+     * With snapping on, once it has slowed to a gentle drift it glides onto the nearest card.
+     */
+    private inner class SnapFling(v0: Float) : Motion() {
+        private val inner = ScrollMotion(p, v0, decay, 0f, maxP(), 18f, 0.01f, 1.5f) { setP(it) }
+
+        override fun step(dt: Float): Boolean {
+            val alive = inner.step(dt)
+            val inside = p in 0f..maxP()
+            if (!alive || (inside && abs(inner.velocity) < 2.2f)) {
+                val target = p.coerceIn(0f, maxP()).roundToInt().toFloat()
+                val v = if (alive) inner.velocity else 0f
+                val x0 = abs(p - target)
+                val towards = (target - p) * v > 0f
+                val base = 14f * omegaScale
+                val omega = if (towards && x0 > 0.02f) max(base, min(80f, abs(v) / x0)) else base
+                startScroll(SpringMotion(p, v, target, omega, 1f, 0.002f, 0.02f) { setP(it) })
+                return false
+            }
+            return true
+        }
+    }
+
     private fun releaseScroll(vxPx: Float) {
-        val v = -vxPx / pitchF() * velScale // cards per second
-        val lo = 0f
-        val hi = maxP()
-        if (mode == Mode.NORMAL && snap && p in lo..hi) {
-            // Where the momentum would carry us, then glide there with the same velocity.
-            val target = (p + v / decay).coerceIn(lo, hi).roundToInt().toFloat()
-            val x0 = abs(p - target)
-            val towards = (target - p) * v > 0f
-            val base = 14f * omegaScale
-            // Critically damped springs don't overshoot as long as omega >= |v| / distance.
-            val omega = if (towards && x0 > 0.02f) max(base, min(80f, abs(v) / x0)) else base
-            startScroll(SpringMotion(p, v, target, omega, 1f, 0.002f, 0.02f) { setP(it) })
+        val v = -vxPx / pitchF() // cards per second
+        if (mode == Mode.NORMAL && snap) {
+            startScroll(SnapFling(v))
         } else {
-            startScroll(ScrollMotion(p, v, decay, lo, hi, 18f, 0.01f) { setP(it) })
+            startScroll(ScrollMotion(p, v, decay, 0f, maxP(), 18f, 0.01f, 1.5f) { setP(it) })
         }
     }
 
@@ -662,7 +752,7 @@ class CarouselView @JvmOverloads constructor(ctx: Context, attrs: AttributeSet? 
             val target = p.coerceIn(0f, maxP()).roundToInt().toFloat()
             startScroll(SpringMotion(p, 0f, target, 14f * omegaScale, 1f, 0.002f, 0.02f) { setP(it) })
         } else if (p < 0f || p > maxP()) {
-            startScroll(ScrollMotion(p, 0f, decay, 0f, maxP(), 18f, 0.01f) { setP(it) })
+            startScroll(ScrollMotion(p, 0f, decay, 0f, maxP(), 18f, 0.01f, 1.5f) { setP(it) })
         }
     }
 
@@ -692,17 +782,39 @@ class CarouselView @JvmOverloads constructor(ctx: Context, attrs: AttributeSet? 
         if (dismiss) {
             dismissCard(c, vy)
         } else {
-            // Not far enough: it settles back with a little bounce, and so do the neighbours.
+            // Not far enough: it falls back with a bounce, and the neighbours follow it down.
             physics.cancel(c.dragM)
-            val m = SpringMotion(c.dragY, vy, 0f, 16f * omegaScale, min(zeta, 0.85f), 0.3f, 4f) {
-                c.dragY = it
-                physics.start(liftMotion)
-            }
-            m.onEnd = { if (liftSrc === c) liftSrc = null }
+            val zc = (zeta * 0.65f).coerceIn(0.3f, 0.9f)
+            val m = SpringMotion(c.dragY, vy, 0f, 15f * omegaScale, zc, 0.3f, 4f) { c.dragY = it }
             c.dragM = m
             physics.start(m)
-            if (liftSrc === c) liftBounceBack()
+            liftBounceBack(c)
         }
+    }
+
+    // ================================================================ pulling up from the bottom
+
+    private fun pullBy(dy: Float) {
+        pullRaw += dy
+        if (pullRaw > 0f) pullRaw = 0f
+        val cap = dm.heightPixels * 0.5f
+        // Follows the finger at first, then stiffens: elastic.
+        pullY = -cap * tanh(-pullRaw / cap)
+        applyPositions()
+    }
+
+    private fun releasePull(vy: Float) {
+        val h = dm.heightPixels
+        val close = -pullRaw > h * 0.14f || vy < -1100f
+        physics.cancel(pullM)
+        val m = SpringMotion(pullY, vy, 0f, (if (close) 8f else 13f) * omegaScale,
+            if (close) 1f else (zeta * 0.7f).coerceIn(0.35f, 0.9f), 0.3f, 4f) {
+            pullY = it
+            applyPositions()
+        }
+        pullM = m
+        physics.start(m)
+        if (close) onPullClose?.invoke()
     }
 
     // ================================================================ removing cards
@@ -711,15 +823,15 @@ class CarouselView @JvmOverloads constructor(ctx: Context, attrs: AttributeSet? 
         val t = c.task ?: return
         if (c.leaving) return
         liftAnchor = c.slot
-        liftFloatDown()
         removeCards(listOf(c), listOf(vy), 0L)
+        liftFloatDown()
         onDismissed?.invoke(listOf(t))
     }
 
     /**
      * Takes [victims] out of the row. The rest of the cards keep exactly the pixels they were at
-     * (FLIP) and then glide to their new places on springs, so the gap closes smoothly instead of
-     * the list jumping. Victims fly off the top on their own physics.
+     * (FLIP) and then glide to their new places on springs (with a little bounce), so the gap
+     * closes smoothly instead of the list jumping. Victims fly off the top on their own physics.
      */
     private fun removeCards(victims: List<Card>, vys: List<Float>, staggerMs: Long) {
         physics.cancel(scrollM)
@@ -745,10 +857,8 @@ class CarouselView @JvmOverloads constructor(ctx: Context, attrs: AttributeSet? 
         cards.forEachIndexed { i, c -> c.slot = i }
         p = (p - shift).coerceIn(0f, maxP())
         lastFocus = p.roundToInt()
-        for (c in cards) {
-            c.q = p
-            c.qv = 0f
-        }
+        sq = p
+        sqv = 0f
 
         // 3. animate survivors from their old pixels to the new layout
         for (c in cards) {
@@ -767,8 +877,9 @@ class CarouselView @JvmOverloads constructor(ctx: Context, attrs: AttributeSet? 
         c.flipX = fx
         c.flipS = fs
         val om = 11f * omegaScale
-        val mx = SpringMotion(fx, vx, 0f, om, max(zeta, 0.5f), 0.3f, 4f) { c.flipX = it }
-        val ms = SpringMotion(fs, vs, 1f, om, max(zeta, 0.5f), 0.0008f, 0.01f) { c.flipS = it }
+        val zf = (zeta * 0.7f).coerceIn(0.35f, 0.9f) // a little bounce as the gap closes
+        val mx = SpringMotion(fx, vx, 0f, om, zf, 0.3f, 4f) { c.flipX = it }
+        val ms = SpringMotion(fs, vs, 1f, om, zf, 0.0008f, 0.01f) { c.flipS = it }
         c.flipXM = mx
         c.flipSM = ms
         physics.start(mx)
@@ -796,7 +907,7 @@ class CarouselView @JvmOverloads constructor(ctx: Context, attrs: AttributeSet? 
     }
 
     private fun notifyIfGone() {
-        if (!goneNotified && cards.size <= 1 && leavingCards.isEmpty()) {
+        if (!goneNotified && cards.none { !it.isClear } && leavingCards.isEmpty()) {
             goneNotified = true
             onAllGone?.invoke()
         }
@@ -815,7 +926,7 @@ class CarouselView @JvmOverloads constructor(ctx: Context, attrs: AttributeSet? 
         removeCards(victims, victims.map { -1800f }, 45L)
         onDismissed?.invoke(tasks)
         // The pill fades out while its cards leave.
-        cards.firstOrNull()?.let { pill ->
+        cards.firstOrNull { it.isClear }?.let { pill ->
             physics.start(SpringMotion(pill.ea, 0f, 0f, 12f * omegaScale, 1f, 0.002f, 0.02f) { pill.ea = it })
         }
         postDelayed({ notifyIfGone() }, 3000) // safety net
@@ -871,23 +982,42 @@ class CarouselView @JvmOverloads constructor(ctx: Context, attrs: AttributeSet? 
         }
     }
 
-    /** Fades and slightly enlarges everything, then calls [onDone]. */
+    /** The cards slide back out to the left (the reverse of the default entrance). */
     fun playExit(onDone: () -> Unit) {
-        if (busy && exitT > 0f) return
+        if (busy && exitStarted) return
         busy = true
-        var fired = false
-        spring(exitT, 1f, 11f, 1f, 0.002f, 0.02f) { t ->
-            exitT = t
-            if (!fired && t > 0.97f) {
-                fired = true
-                onDone()
-            }
+        exitStarted = true
+        val order = cards.sortedBy { abs(it.slot - p) }
+        val w = max(width, dm.widthPixels).toFloat()
+        var remaining = order.size
+        if (remaining == 0) {
+            onDone()
+            return
         }
+        for ((rank, c) in order.withIndex()) {
+            val target = -(w * 1.05f + rank * dp(22f))
+            var counted = false
+            val begin = Runnable {
+                val m = SpringMotion(c.ex, 0f, target, 9f * omegaScale, 1f, 2f, 40f) { x ->
+                    c.ex = x
+                    if (!counted && x < -w * 0.85f) {
+                        counted = true
+                        if (--remaining == 0) onDone()
+                    }
+                }
+                physics.start(m)
+            }
+            val delay = min(rank, 7) * 24L
+            if (delay == 0L) begin.run() else postDelayed(begin, delay)
+        }
+        postDelayed({ if (remaining > 0) { remaining = 0; onDone() } }, 1100) // safety net
     }
 
+    private var exitStarted = false
+
     /**
-     * The tapped card grows until its thumbnail fills the screen. [onReached] is called when it
-     * is almost there; everything else fades away on the way.
+     * The tapped card grows until its thumbnail fills the screen (used when the overlay window is
+     * not available). [onReached] is called when it is almost there.
      */
     fun openCard(c: Card, onReached: () -> Unit) {
         busy = true
@@ -908,5 +1038,134 @@ class CarouselView @JvmOverloads constructor(ctx: Context, attrs: AttributeSet? 
         }
     }
 
+    /**
+     * The card on screen is about to be replaced by the overlay window's copy: fade the other
+     * cards, then hide this one a moment later and call [onDone].
+     */
+    fun overlayHandoff(c: Card, onDone: () -> Unit) {
+        busy = true
+        physics.cancel(c.dragM)
+        openingCard = c
+        spring(0f, 1f, 16f, 1f, 0.002f, 0.02f) { fadeOthers = it }
+        postDelayed({
+            spring(c.ea, 0f, 45f, 1f, 0.01f, 0.1f) { c.ea = it }
+        }, 70)
+        postDelayed({ onDone() }, 190)
+    }
+
+    /** The thumbnail area of a card in screen coordinates and its current scale. */
+    fun thumbRect(c: Card): RectF {
+        val v = c.view
+        val loc = IntArray(2)
+        getLocationOnScreen(loc)
+        val cx = loc[0] + v.left + v.width / 2f + v.translationX
+        val cy = loc[1] + v.top + v.height / 2f + v.translationY
+        val sw = v.width * v.scaleX
+        val sh = v.height * v.scaleY
+        val top = cy - sh / 2f + headerH * v.scaleY
+        return RectF(cx - sw / 2f, top, cx + sw / 2f, cy + sh / 2f)
+    }
+
+    fun cardRadiusPx() = dp(26f)
+
+    fun focusedCard(): Card? {
+        if (cards.isEmpty()) return null
+        val i = p.roundToInt().coerceIn(0, cards.size - 1)
+        val c = cards[i]
+        return if (c.isClear) cards.getOrNull(i + 1) else c
+    }
+
     fun taskCount() = cards.count { !it.isClear }
+
+    // ================================================================ peek (bottom trigger hold)
+
+    /**
+     * Called while the finger is still down on the trigger. The cards start out of sight at the
+     * left, peeking in; [peekMove] then drags them around with elastic lag (cards nearer to the
+     * finger move more), and [peekRelease] lets them spring into their places.
+     */
+    fun peekStart() {
+        busy = true
+        peeking = true
+        peekReleased = false
+        peekDx = 0f
+        peekDy = 0f
+        val w = max(width, dm.widthPixels).toFloat()
+        peekBase = -(w / 2f + cw / 2f) + dp(72f)
+        for (c in cards) {
+            c.ex = peekBase - dp(220f)
+            c.ey = 0f
+            c.es = 1f
+            c.ea = 1f
+            c.exv = 0f
+            c.eyv = 0f
+            c.esv = 0f
+        }
+        applyPositions()
+        physics.start(peekMotion)
+    }
+
+    fun peekMove(fx: Float, fy: Float, dx: Float, dy: Float) {
+        peekFx = fx
+        peekFy = fy
+        peekDx = dx
+        peekDy = dy
+    }
+
+    fun peekRelease() {
+        if (!peeking) return
+        peekReleased = true
+        busy = false
+        physics.start(peekMotion)
+    }
+
+    private val peekMotion = object : Motion() {
+        override fun step(dt: Float): Boolean {
+            if (!peeking) return false
+            val w = max(width, dm.widthPixels).toFloat()
+            val h = dm.heightPixels.toFloat()
+            val n = max(1, ceil(dt / SUBSTEP).toInt())
+            val hh = dt / n
+            var moving = !peekReleased
+            val up = (-peekDy / (h * 0.35f)).coerceIn(0f, 1f)
+            for (c in cards) {
+                var tx = 0f
+                var ty = 0f
+                var ts = 1f
+                var omega = 11f * omegaScale
+                var zt = (zeta * 0.75f).coerceIn(0.4f, 0.9f)
+                if (!peekReleased) {
+                    place(c.slot - posOf(c))
+                    val cx = w / 2f + outX + c.ex
+                    // 1 right under the finger, falling off with distance
+                    val k = 1f / (1f + abs(cx - peekFx) / (cw * 0.9f))
+                    tx = peekBase + peekDx.coerceIn(-w, w) * (0.25f + 0.75f * k)
+                    ty = 0.55f * peekDy * (0.3f + 0.7f * k)
+                    ts = 1f - 0.2f * up * (0.4f + 0.6f * k)
+                    omega = (10f + 22f * k) * omegaScale
+                    zt = 0.7f
+                }
+                for (i in 0 until n) {
+                    c.exv += (-omega * omega * (c.ex - tx) - 2f * zt * omega * c.exv) * hh
+                    c.ex += c.exv * hh
+                    c.eyv += (-omega * omega * (c.ey - ty) - 2f * zt * omega * c.eyv) * hh
+                    c.ey += c.eyv * hh
+                    c.esv += (-omega * omega * (c.es - ts) - 2f * zt * omega * c.esv) * hh
+                    c.es += c.esv * hh
+                }
+                if (peekReleased &&
+                    (abs(c.ex) > 0.4f || abs(c.ey) > 0.4f || abs(c.es - 1f) > 0.002f ||
+                        abs(c.exv) > 6f || abs(c.eyv) > 6f || abs(c.esv) > 0.05f)
+                ) moving = true
+            }
+            if (!moving) {
+                for (c in cards) {
+                    c.ex = 0f; c.ey = 0f; c.es = 1f
+                    c.exv = 0f; c.eyv = 0f; c.esv = 0f
+                }
+                peeking = false
+            }
+            return moving
+        }
+    }
 }

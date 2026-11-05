@@ -1,9 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- paddingTop matches the 40dp header row so the pill centres on the card thumbnails -->
 <FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
     android:layout_width="wrap_content"
-    android:layout_height="wrap_content"
-    android:paddingTop="40dp">
+    android:layout_height="wrap_content">
 
     <TextView
         android:id="@+id/clear_pill"
