@@ -16,7 +16,7 @@ class Config private constructor(private val sp: SharedPreferences) {
             Config(ctx.getSharedPreferences("settings", Context.MODE_PRIVATE))
 
         // ---- look ----
-        val CARD_SIZE = IntSpec("cardSize", 60, 45, 75)
+        val CARD_SIZE = IntSpec("cardSize2", 66, 45, 80)
         val BLUR = IntSpec("blur", 45, 0, 100)
         val TINT = IntSpec("tint", 30, 0, 80)
 

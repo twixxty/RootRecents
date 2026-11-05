@@ -75,14 +75,15 @@ class SettingsActivity : Activity() {
 
         section("Bottom trigger")
         toggle("Enable the bottom swipe trigger", cfg.triggerEnabled) { setTrigger(it) }
-        toggle("Swipe up and hold shows the peek", cfg.triggerHold) { cfg.triggerHold = it }
+        toggle("Show the peek animation while holding", cfg.triggerHold) { cfg.triggerHold = it }
         slider("Sensitivity (height of the touch zone)", Config.TRIG_ZONE) { "$it dp" }
         slider("Swipe length", Config.TRIG_LENGTH) { "$it dp" }
         slider("Hold time", Config.TRIG_HOLD) { "$it ms" }
         note(
-            "A thin strip along the bottom edge. Swipe up and let go: recents. Swipe up and hold: the " +
-                "screen blurs, the cards peek in and follow your finger. If your system gesture bar " +
-                "swallows the swipe, make the zone taller."
+            "A thin strip along the bottom edge. Swipe up and let go: home screen. Swipe up and hold: " +
+                "recents. With the peek on, the screen blurs and the cards peek in and follow your " +
+                "finger until you let go. If your system gesture bar swallows the swipe, make the " +
+                "zone taller."
         )
 
         section("Dismissing")

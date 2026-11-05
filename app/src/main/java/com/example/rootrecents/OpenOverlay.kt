@@ -84,11 +84,30 @@ object OpenOverlay {
         }
     }
 
+    /** Lets the caller say when the app has actually started, which is when the overlay fades. */
+    class Controller internal constructor() {
+        internal var view: View? = null
+        internal var launched = false
+        internal var filled = false
+        internal var tryFade: (() -> Unit)? = null
+
+        /** Call (from any thread) once the app has been started. */
+        fun launched() {
+            view?.post {
+                launched = true
+                tryFade?.invoke()
+            }
+        }
+    }
+
     /**
+     * Order of events: the card grows and blurs until it fills the screen, [onFilled] is called
+     * (start the app now), and only after [Controller.launched] does the overlay fade away.
+     *
      * @param effect 0 blur, 1 colour wash, 2 nothing
      * @param from the card's thumbnail rectangle in screen coordinates
      * @param blurPx maximum blur radius in pixels
-     * @return false if the overlay could not be shown (caller should animate in its own window)
+     * @return null if the overlay could not be shown (caller should animate in its own window)
      */
     fun play(
         ctx: Context,
@@ -100,11 +119,12 @@ object OpenOverlay {
         effect: Int,
         washColor: Int,
         blurPx: Float,
-        omegaScale: Float
-    ): Boolean {
+        omegaScale: Float,
+        onFilled: () -> Unit
+    ): Controller? {
         val app = ctx.applicationContext
-        if (!android.provider.Settings.canDrawOverlays(app)) return false
-        val wm = app.getSystemService(WindowManager::class.java) ?: return false
+        if (!android.provider.Settings.canDrawOverlays(app)) return null
+        val wm = app.getSystemService(WindowManager::class.java) ?: return null
 
         val screen = RectF()
         if (Build.VERSION.SDK_INT >= 30) {
@@ -133,9 +153,11 @@ object OpenOverlay {
         try {
             wm.addView(view, lp)
         } catch (e: Exception) {
-            return false
+            return null
         }
 
+        val ctl = Controller()
+        ctl.view = view
         val physics = Physics()
         var removed = false
         fun remove() {
@@ -151,6 +173,20 @@ object OpenOverlay {
         var fading = false
         var lastBlur = -1
         physics.onFrameEnd = { view.invalidate() }
+
+        fun fade() {
+            if (fading) return
+            fading = true
+            physics.start(SpringMotion(1f, 0f, 0f, 10f * omegaScale, 1f, 0.01f, 0.1f) { a ->
+                view.alpha = a.coerceIn(0f, 1f)
+                if (a <= 0.02f) remove()
+            })
+        }
+        ctl.tryFade = {
+            // a short beat so the app's first frame is on screen before the cover goes away
+            if (ctl.filled && ctl.launched) view.postDelayed({ fade() }, 140)
+        }
+
         physics.start(SpringMotion(0f, 0f, 1f, 13f * omegaScale, 0.95f, 0.002f, 0.02f) { t ->
             view.t = t
             val e = t.coerceIn(0f, 1f)
@@ -167,16 +203,14 @@ object OpenOverlay {
                 }
                 1 -> view.wash = e * 0.85f
             }
-            if (!fading && t > 0.82f) {
-                fading = true
-                physics.start(SpringMotion(1f, 0f, 0f, 10f * omegaScale, 1f, 0.01f, 0.1f) { a ->
-                    view.alpha = a.coerceIn(0f, 1f)
-                    if (a <= 0.02f) remove()
-                })
+            if (!ctl.filled && t > 0.97f) {
+                ctl.filled = true
+                onFilled()
+                ctl.tryFade?.invoke()
             }
         })
-        // safety net so a stuck overlay can never stay on screen
-        view.postDelayed({ remove() }, 2500)
-        return true
+        // never leave the screen covered if the app is slow or never reports back
+        view.postDelayed({ ctl.launched = true; ctl.filled = true; fade() }, 3500)
+        return ctl
     }
 }

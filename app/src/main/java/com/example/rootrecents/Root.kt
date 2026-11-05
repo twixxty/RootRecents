@@ -90,7 +90,7 @@ object Actions {
     /** Brings the task's app forward in the right user (work profile apps stay in the profile). */
     fun launch(ctx: Context, task: RecentTask) {
         val out = Root.execAll(
-            "am start --user ${task.userId} -n '${task.component}' " +
+            "am start -W --user ${task.userId} -n '${task.component}' " +
                 "-a android.intent.action.MAIN -c android.intent.category.LAUNCHER -f $LAUNCH_FLAGS"
         )
         if (out.contains("Error", ignoreCase = true) || out.contains("Exception")) {

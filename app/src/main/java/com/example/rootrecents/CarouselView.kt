@@ -2,7 +2,9 @@ package com.example.rootrecents
 
 import android.content.Context
 import android.graphics.Outline
+import android.graphics.drawable.GradientDrawable
 import android.graphics.RectF
+import android.os.Build
 import android.util.AttributeSet
 import android.view.HapticFeedbackConstants
 import android.view.LayoutInflater
@@ -11,6 +13,7 @@ import android.view.VelocityTracker
 import android.view.View
 import android.view.ViewConfiguration
 import android.view.ViewOutlineProvider
+import android.view.WindowManager
 import android.widget.FrameLayout
 import android.widget.ImageView
 import android.widget.TextView
@@ -47,6 +50,7 @@ class CarouselView @JvmOverloads constructor(ctx: Context, attrs: AttributeSet? 
         val pill: View? = view.findViewById(R.id.pill)
         val picon: ImageView? = view.findViewById(R.id.picon)
         val plabel: TextView? = view.findViewById(R.id.plabel)
+        val chev: TextView? = view.findViewById(R.id.chev)
 
         var slot = 0
         var dragY = 0f
@@ -122,6 +126,21 @@ class CarouselView @JvmOverloads constructor(ctx: Context, attrs: AttributeSet? 
 
     private val dm = resources.displayMetrics
     private fun dp(v: Float) = v * dm.density
+
+    /** The real size of the screen (the carousel fills it once laid out). */
+    private fun realSize(): IntArray {
+        if (Build.VERSION.SDK_INT >= 30) {
+            val b = context.getSystemService(WindowManager::class.java).maximumWindowMetrics.bounds
+            return intArrayOf(b.width(), b.height())
+        }
+        val m = android.util.DisplayMetrics()
+        @Suppress("DEPRECATION")
+        context.getSystemService(WindowManager::class.java).defaultDisplay.getRealMetrics(m)
+        return intArrayOf(m.widthPixels, m.heightPixels)
+    }
+
+    private fun sw(): Int = if (width > 0) width else realSize()[0]
+    private fun sh(): Int = if (height > 0) height else realSize()[1]
 
     private val physics = Physics()
     private val cards = ArrayList<Card>()
@@ -223,8 +242,8 @@ class CarouselView @JvmOverloads constructor(ctx: Context, attrs: AttributeSet? 
     // ================================================================ setup
 
     private fun computeGeometry() {
-        val w = dm.widthPixels
-        val h = dm.heightPixels
+        val w = sw()
+        val h = sh()
         cw = (w * cardPercent / 100f).toInt()
         thumbH = (cw.toLong() * h / w).toInt()
         headerH = if (mode == Mode.STACK) dp(40f).toInt() else 0
@@ -283,8 +302,14 @@ class CarouselView @JvmOverloads constructor(ctx: Context, attrs: AttributeSet? 
 
         c.pill!!.visibility = if (!stack && showLabels) View.VISIBLE else View.GONE
         c.plabel!!.text = t.label
-        c.plabel.maxWidth = (cw - dp(140f)).toInt()
+        c.plabel.maxWidth = (cw - dp(90f)).toInt()
         c.picon!!.setImageDrawable(t.icon)
+        c.pill.background = GradientDrawable().apply {
+            cornerRadius = dp(17f)
+            setColor(MaterialYou.container(context))
+        }
+        c.plabel.setTextColor(MaterialYou.onContainer(context))
+        c.chev?.setTextColor(MaterialYou.onContainer(context))
 
         val th = c.thumb!!
         (th.layoutParams as FrameLayout.LayoutParams).apply {
@@ -354,14 +379,16 @@ class CarouselView @JvmOverloads constructor(ctx: Context, attrs: AttributeSet? 
         } else {
             val ad = -d
             val s = max(0.9f, 1f - stackScaleK * ad)
-            val k = pitchS / leftMax
+            val step = dp(5f)
+            val k = (pitchS - step) / leftMax
             outS = s
-            outX = -leftMax * (1f - exp(-k * ad)) - (1f - s) * cw / 2f
+            outX = -leftMax * (1f - exp(-k * ad)) - step * 5f * (1f - exp(-ad / 5f)) -
+                (1f - s) * cw / 2f
         }
     }
 
     private fun applyPositions() {
-        val pullS = (-pullY / dm.heightPixels * 0.45f).coerceIn(0f, 0.12f)
+        val pullS = (-pullY / sh() * 0.45f).coerceIn(0f, 0.12f)
         for (c in cards) {
             val d = c.slot - posOf(c)
             place(d)
@@ -378,7 +405,7 @@ class CarouselView @JvmOverloads constructor(ctx: Context, attrs: AttributeSet? 
                     // only as the card is tucked behind to the left.
                     c.header?.alpha = if (d >= 0f) 1f else (1f + d * 1.6f).coerceIn(0f, 1f)
                 }
-                if (d < 0f) a *= 1f - ((-d) - 4f).coerceIn(0f, 2f) / 2f
+                if (d < 0f) a *= 1f - ((-d) - 3.5f).coerceIn(0f, 4.5f) / 4.5f
             }
 
             val opening = openingCard
@@ -435,9 +462,9 @@ class CarouselView @JvmOverloads constructor(ctx: Context, attrs: AttributeSet? 
         override fun step(dt: Float): Boolean {
             val n = max(1, ceil(dt / SUBSTEP).toInt())
             val h = dt / n
-            val tau = 0.012f + stackElastic * 0.05f
-            val omega = min(80f, 1f / tau)
-            val zt = 0.85f - 0.25f * stackElastic
+            val tau = 0.008f + stackElastic * 0.03f
+            val omega = min(90f, 1f / tau)
+            val zt = 1f - 0.12f * stackElastic // never wobbles, only lags and catches up
             for (i in 0 until n) {
                 val a = omega * omega * (p - sq) - 2f * zt * omega * sqv
                 sqv += a * h
@@ -540,7 +567,12 @@ class CarouselView @JvmOverloads constructor(ctx: Context, attrs: AttributeSet? 
 
     // ================================================================ touch
 
-    private fun pitchF() = if (mode == Mode.STACK) pitchS else pitchN
+    private fun pitchF() = (if (mode == Mode.STACK) pitchS else pitchN) / gain()
+
+    /** The deck moves a bit further than the finger so it is easy to flick through. */
+    private fun gain() = if (mode == Mode.STACK) 1.3f else 1f
+
+    private fun dec() = if (mode == Mode.STACK) decay * 0.8f else decay
 
     private fun localX(c: Card, x: Float): Float {
         val v = c.view
@@ -718,14 +750,15 @@ class CarouselView @JvmOverloads constructor(ctx: Context, attrs: AttributeSet? 
      * With snapping on, once it has slowed to a gentle drift it glides onto the nearest card.
      */
     private inner class SnapFling(v0: Float) : Motion() {
-        private val inner = ScrollMotion(p, v0, decay, 0f, maxP(), 18f, 0.01f, 1.5f) { setP(it) }
+        private val inner = ScrollMotion(p, v0, dec(), 0f, maxP(), 18f, 0.01f, 1.5f) { setP(it) }
 
         override fun step(dt: Float): Boolean {
             val alive = inner.step(dt)
             val inside = p in 0f..maxP()
             if (!alive || (inside && abs(inner.velocity) < 2.2f)) {
-                val target = p.coerceIn(0f, maxP()).roundToInt().toFloat()
                 val v = if (alive) inner.velocity else 0f
+                // Where the remaining momentum would have carried it: never snap back the way it came.
+                val target = (p + v / dec()).coerceIn(0f, maxP()).roundToInt().toFloat()
                 val x0 = abs(p - target)
                 val towards = (target - p) * v > 0f
                 val base = 14f * omegaScale
@@ -742,7 +775,7 @@ class CarouselView @JvmOverloads constructor(ctx: Context, attrs: AttributeSet? 
         if (mode == Mode.NORMAL && snap) {
             startScroll(SnapFling(v))
         } else {
-            startScroll(ScrollMotion(p, v, decay, 0f, maxP(), 18f, 0.01f, 1.5f) { setP(it) })
+            startScroll(ScrollMotion(p, v, dec(), 0f, maxP(), 18f, 0.01f, 1.5f) { setP(it) })
         }
     }
 
@@ -752,7 +785,7 @@ class CarouselView @JvmOverloads constructor(ctx: Context, attrs: AttributeSet? 
             val target = p.coerceIn(0f, maxP()).roundToInt().toFloat()
             startScroll(SpringMotion(p, 0f, target, 14f * omegaScale, 1f, 0.002f, 0.02f) { setP(it) })
         } else if (p < 0f || p > maxP()) {
-            startScroll(ScrollMotion(p, 0f, decay, 0f, maxP(), 18f, 0.01f, 1.5f) { setP(it) })
+            startScroll(ScrollMotion(p, 0f, dec(), 0f, maxP(), 18f, 0.01f, 1.5f) { setP(it) })
         }
     }
 
@@ -794,23 +827,55 @@ class CarouselView @JvmOverloads constructor(ctx: Context, attrs: AttributeSet? 
 
     // ================================================================ pulling up from the bottom
 
+    private var pullV = 0f
+    private var pullTarget = 0f
+
+    /** The pull follows the finger on a spring, so it has weight and a bit of lag. */
+    private val pullFollow = object : Motion() {
+        override fun step(dt: Float): Boolean {
+            val n = max(1, ceil(dt / SUBSTEP).toInt())
+            val h = dt / n
+            val omega = 20f * omegaScale
+            for (i in 0 until n) {
+                val a = -omega * omega * (pullY - pullTarget) - 2f * 0.82f * omega * pullV
+                pullV += a * h
+                pullY += pullV * h
+            }
+            return abs(pullY - pullTarget) > 0.4f || abs(pullV) > 8f
+        }
+    }
+
     private fun pullBy(dy: Float) {
         pullRaw += dy
         if (pullRaw > 0f) pullRaw = 0f
-        val cap = dm.heightPixels * 0.5f
+        val cap = sh() * 0.5f
         // Follows the finger at first, then stiffens: elastic.
-        pullY = -cap * tanh(-pullRaw / cap)
-        applyPositions()
+        pullTarget = -cap * tanh(-pullRaw / cap)
+        physics.cancel(pullM)
+        physics.start(pullFollow)
     }
 
     private fun releasePull(vy: Float) {
-        val h = dm.heightPixels
-        val close = -pullRaw > h * 0.14f || vy < -1100f
+        val h = sh()
+        physics.cancel(pullFollow)
+        // it keeps the momentum of the swipe: a flick counts as much as the distance
+        val projected = -pullRaw + (-vy) * 0.16f
+        val close = projected > h * 0.16f || vy < -1000f
         physics.cancel(pullM)
-        val m = SpringMotion(pullY, vy, 0f, (if (close) 8f else 13f) * omegaScale,
-            if (close) 1f else (zeta * 0.7f).coerceIn(0.35f, 0.9f), 0.3f, 4f) {
-            pullY = it
-            applyPositions()
+        val v0 = pullV * 0.5f + vy * 0.5f
+        val m: SpringMotion
+        if (close) {
+            // glide on upwards with the swipe's momentum while the cards leave
+            val target = (pullY + vy * 0.22f).coerceIn(-h * 0.45f, pullY)
+            m = SpringMotion(pullY, v0, target, 6.5f * omegaScale, 1f, 0.5f, 6f) {
+                pullY = it
+                applyPositions()
+            }
+        } else {
+            m = SpringMotion(pullY, v0, 0f, 12f * omegaScale, (zeta * 0.6f).coerceIn(0.3f, 0.85f), 0.3f, 4f) {
+                pullY = it
+                applyPositions()
+            }
         }
         pullM = m
         physics.start(m)
@@ -888,7 +953,7 @@ class CarouselView @JvmOverloads constructor(ctx: Context, attrs: AttributeSet? 
 
     private fun startLeave(c: Card, vy: Float, delayMs: Long) {
         physics.cancel(c.dragM)
-        val h = dm.heightPixels.toFloat()
+        val h = sh().toFloat()
         val begin = Runnable {
             val m = SpringMotion(c.dragY, min(vy, -1400f), -h * 1.35f, 7f * omegaScale, 1f, h * 0.3f, 8f) { y ->
                 c.dragY = y
@@ -947,7 +1012,7 @@ class CarouselView @JvmOverloads constructor(ctx: Context, attrs: AttributeSet? 
         busy = false
         lastFocus = p.roundToInt()
         val order = cards.sortedBy { abs(it.slot - p) }
-        val w = max(width, dm.widthPixels).toFloat()
+        val w = max(width, sw()).toFloat()
         for ((rank, c) in order.withIndex()) {
             c.ex = 0f; c.ey = 0f; c.es = 1f; c.ea = 1f
             when (style) {
@@ -982,25 +1047,32 @@ class CarouselView @JvmOverloads constructor(ctx: Context, attrs: AttributeSet? 
         }
     }
 
-    /** The cards slide back out to the left (the reverse of the default entrance). */
+    /**
+     * The cards slide back out to the left (the reverse of the default entrance). Every card
+     * travels as far as it needs to leave the screen, wherever it is when the exit starts.
+     */
     fun playExit(onDone: () -> Unit) {
         if (busy && exitStarted) return
         busy = true
         exitStarted = true
         val order = cards.sortedBy { abs(it.slot - p) }
-        val w = max(width, dm.widthPixels).toFloat()
+        val w = max(sw(), 1).toFloat()
         var remaining = order.size
         if (remaining == 0) {
             onDone()
             return
         }
+        // offscreen when the card's centre is further left than this (from the screen centre)
+        val gone = -(w / 2f + cw / 2f + dp(8f))
         for ((rank, c) in order.withIndex()) {
-            val target = -(w * 1.05f + rank * dp(22f))
+            place(c.slot - posOf(c))
+            val base = outX + c.flipX // where the card sits without the entry offset
+            val target = gone - rank * dp(18f) - base
             var counted = false
             val begin = Runnable {
                 val m = SpringMotion(c.ex, 0f, target, 9f * omegaScale, 1f, 2f, 40f) { x ->
                     c.ex = x
-                    if (!counted && x < -w * 0.85f) {
+                    if (!counted && base + x < gone + dp(6f)) {
                         counted = true
                         if (--remaining == 0) onDone()
                     }
@@ -1010,7 +1082,7 @@ class CarouselView @JvmOverloads constructor(ctx: Context, attrs: AttributeSet? 
             val delay = min(rank, 7) * 24L
             if (delay == 0L) begin.run() else postDelayed(begin, delay)
         }
-        postDelayed({ if (remaining > 0) { remaining = 0; onDone() } }, 1100) // safety net
+        postDelayed({ if (remaining > 0) { remaining = 0; onDone() } }, 1300) // safety net
     }
 
     private var exitStarted = false
@@ -1090,7 +1162,7 @@ class CarouselView @JvmOverloads constructor(ctx: Context, attrs: AttributeSet? 
         peekReleased = false
         peekDx = 0f
         peekDy = 0f
-        val w = max(width, dm.widthPixels).toFloat()
+        val w = max(width, sw()).toFloat()
         peekBase = -(w / 2f + cw / 2f) + dp(72f)
         for (c in cards) {
             c.ex = peekBase - dp(220f)
@@ -1122,8 +1194,8 @@ class CarouselView @JvmOverloads constructor(ctx: Context, attrs: AttributeSet? 
     private val peekMotion = object : Motion() {
         override fun step(dt: Float): Boolean {
             if (!peeking) return false
-            val w = max(width, dm.widthPixels).toFloat()
-            val h = dm.heightPixels.toFloat()
+            val w = max(width, sw()).toFloat()
+            val h = sh().toFloat()
             val n = max(1, ceil(dt / SUBSTEP).toInt())
             val hh = dt / n
             var moving = !peekReleased

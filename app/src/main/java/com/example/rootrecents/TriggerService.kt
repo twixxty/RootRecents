@@ -43,7 +43,7 @@ class TriggerService : Service() {
         }
     }
 
-    private enum class S { IDLE, TRACK, SWIPED, PEEK }
+    private enum class S { IDLE, TRACK, SWIPED, PEEK, DONE }
 
     private lateinit var wm: WindowManager
     private lateinit var config: Config
@@ -59,14 +59,20 @@ class TriggerService : Service() {
     private var ay = 0f
     private var lengthPx = 0f
     private var holdMs = 350L
-    private var holdOn = true
+    private var peekOn = true
+    private var pendingRebuild = false
     private var slopPx = 0f
 
     private val holdRunnable = Runnable {
         if (state == S.SWIPED) {
-            state = S.PEEK
-            PeekBridge.begin(ax, ay)
-            openRecents(true)
+            if (peekOn) {
+                state = S.PEEK
+                PeekBridge.begin(ax, ay)
+                openRecents(true)
+            } else {
+                state = S.DONE
+                openRecents(false)
+            }
         }
     }
 
@@ -84,6 +90,12 @@ class TriggerService : Service() {
         if (!android.provider.Settings.canDrawOverlays(this)) {
             stopSelf()
             return START_NOT_STICKY
+        }
+        if (gestureActive) {
+            // Rebuilding now would remove the strip while a finger is on it (the peek would never
+            // get its release), so wait until the gesture is over.
+            pendingRebuild = true
+            return START_STICKY
         }
         buildStrip()
         return START_STICKY
@@ -119,7 +131,7 @@ class TriggerService : Service() {
         val d = resources.displayMetrics.density
         lengthPx = config.int(Config.TRIG_LENGTH) * d
         holdMs = config.int(Config.TRIG_HOLD).toLong()
-        holdOn = config.triggerHold
+        peekOn = config.triggerHold
         slopPx = ViewConfiguration.get(this).scaledTouchSlop.toFloat()
 
         val v = View(this)
@@ -148,7 +160,24 @@ class TriggerService : Service() {
         }
     }
 
+    private fun goHome() {
+        val i = Intent(Intent.ACTION_MAIN)
+            .addCategory(Intent.CATEGORY_HOME)
+            .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+        try {
+            startActivity(i)
+        } catch (e: Exception) {
+            Thread {
+                Root.exec("am start -a android.intent.action.MAIN -c android.intent.category.HOME -f 0x10000000")
+            }.start()
+        }
+    }
+
     private fun removeStrip() {
+        // never leave the recents screen waiting for a release that can no longer come
+        if (state == S.PEEK) PeekBridge.release()
+        state = S.IDLE
+        gestureActive = false
         strip?.let {
             try {
                 wm.removeViewImmediate(it)
@@ -190,10 +219,10 @@ class TriggerService : Service() {
                     S.TRACK -> if (sy - e.rawY >= lengthPx) {
                         state = S.SWIPED
                         ax = e.rawX; ay = e.rawY
-                        if (holdOn) handler.postDelayed(holdRunnable, holdMs)
+                        handler.postDelayed(holdRunnable, holdMs)
                     }
 
-                    S.SWIPED -> if (holdOn && hypot(e.rawX - ax, e.rawY - ay) > slopPx * 2f) {
+                    S.SWIPED -> if (hypot(e.rawX - ax, e.rawY - ay) > slopPx * 2f) {
                         // still moving: restart the hold timer from here
                         ax = e.rawX; ay = e.rawY
                         handler.removeCallbacks(holdRunnable)
@@ -207,11 +236,17 @@ class TriggerService : Service() {
 
             MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> {
                 handler.removeCallbacks(holdRunnable)
-                if (state == S.SWIPED && e.actionMasked == MotionEvent.ACTION_UP) openRecents(false)
+                // Swiped up and let go without holding: go home.
+                if (state == S.SWIPED && e.actionMasked == MotionEvent.ACTION_UP) goHome()
                 if (state == S.PEEK) PeekBridge.release()
                 state = S.IDLE
                 gestureActive = false
-                updateTouchable()
+                if (pendingRebuild) {
+                    pendingRebuild = false
+                    buildStrip()
+                } else {
+                    updateTouchable()
+                }
             }
         }
         return true

@@ -13,7 +13,8 @@ import android.view.View
 import android.view.ViewGroup
 import android.view.WindowManager
 import android.widget.FrameLayout
-import android.widget.PopupMenu
+import android.widget.LinearLayout
+import android.widget.PopupWindow
 import android.widget.TextView
 import kotlin.math.min
 
@@ -317,65 +318,133 @@ class RecentsActivity : Activity() {
     }
 
     /**
-     * Tap on a card: the card grows to fill the screen (blurring, with the screen's corner radius)
-     * in an overlay window while the real app is started underneath, then fades out.
+     * Tap on a card. In order: the card grows and blurs until it fills the screen (in an overlay
+     * window), then the app is started, then the overlay fades away to reveal it.
      */
     private fun openTask(card: CarouselView.Card, thenScreenshot: Boolean) {
         val task = card.task ?: return
         if (launching || closing) return
         launching = true
 
-        // Start the real app straight away so it is ready underneath when the card arrives.
-        // NO_ANIMATION: our growing card is the transition, Android's own slide must not play.
         val appCtx = applicationContext
-        Thread {
-            Actions.launch(appCtx, task)
-            if (thenScreenshot) {
-                Thread.sleep(1100)
-                Actions.screenshotKey()
-            }
-        }.start()
+        fun startApp(done: () -> Unit) {
+            // NO_ANIMATION + -W: Android's own slide never plays and we learn when the app is up.
+            Thread {
+                Actions.launch(appCtx, task)
+                done()
+                if (thenScreenshot) {
+                    Thread.sleep(900)
+                    Actions.screenshotKey()
+                }
+            }.start()
+        }
 
         val rect = carousel.thumbRect(card)
         val scale = card.view.scaleX
-        val played = OpenOverlay.play(
+        var ctl: OpenOverlay.Controller? = null
+        ctl = OpenOverlay.play(
             appCtx, task.thumb, task.icon, rect, carousel.cardRadiusPx() * scale,
             screenRadiusPx(), config.openEffect, tint, config.blurRadiusPx * 0.7f, config.omegaScale
-        )
-        if (played) {
-            carousel.overlayHandoff(card) { finishNoAnim() }
-            animateBackdrop(0f)
+        ) {
+            // The screen is covered: now it is safe to start the app and let this window go.
+            startApp { ctl?.launched() }
+            finishNoAnim()
+        }
+        if (ctl != null) {
+            carousel.overlayHandoff(card) { }
         } else {
             // No overlay permission: grow the card inside this window instead.
             carousel.openCard(card) {
+                startApp { }
                 animateBackdrop(0f)
-                carousel.postDelayed({ finishNoAnim() }, 220)
+                carousel.postDelayed({ finishNoAnim() }, 260)
             }
         }
-        carousel.postDelayed({ finishNoAnim() }, 1800) // safety net
+        carousel.postDelayed({ finishNoAnim() }, 4000) // safety net
     }
 
-    /** The pill on a card (Android 16 style): a small menu. */
+    /** The pill on a card: a small Material You menu under it. */
     private fun showMenu(card: CarouselView.Card) {
         val task = card.task ?: return
         val anchor = card.pill ?: return
-        val menu = PopupMenu(this, anchor)
-        menu.menu.add(0, 1, 0, "App info")
-        menu.menu.add(0, 2, 1, "Close")
-        menu.menu.add(0, 3, 2, "Force stop")
-        menu.setOnMenuItemClickListener { item ->
-            when (item.itemId) {
-                1 -> openAppInfo(task)
-                2 -> carousel.dismissCard(card, -1500f)
-                3 -> {
-                    val never = emptySet<String>()
-                    Thread { Actions.forceStop(listOf(task), never) }.start()
-                    carousel.dismissCard(card, -1500f)
+        val d = resources.displayMetrics.density
+        val fg = MaterialYou.onContainer(this)
+
+        val content = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(0, (8 * d).toInt(), 0, (8 * d).toInt())
+            background = GradientDrawable().apply {
+                cornerRadius = 22 * d
+                setColor(MaterialYou.surface(this@RecentsActivity))
+            }
+        }
+        val pw = PopupWindow(content, (210 * d).toInt(), ViewGroup.LayoutParams.WRAP_CONTENT, true)
+        pw.setBackgroundDrawable(ColorDrawable(0))
+        pw.elevation = 18 * d
+        pw.isOutsideTouchable = true
+
+        val ripple = obtainStyledAttributes(intArrayOf(android.R.attr.selectableItemBackground))
+        val rippleRes = ripple.getResourceId(0, 0)
+        ripple.recycle()
+
+        fun row(glyph: String, label: String, action: () -> Unit) {
+            val disc = TextView(this).apply {
+                text = glyph
+                textSize = 13f
+                gravity = Gravity.CENTER
+                setTextColor(MaterialYou.onAccent(this@RecentsActivity))
+                background = GradientDrawable().apply {
+                    shape = GradientDrawable.OVAL
+                    setColor(MaterialYou.accent(this@RecentsActivity))
                 }
             }
-            true
+            val text = TextView(this).apply {
+                this.text = label
+                textSize = 15f
+                setTextColor(fg)
+            }
+            val r = LinearLayout(this).apply {
+                orientation = LinearLayout.HORIZONTAL
+                gravity = Gravity.CENTER_VERTICAL
+                setPadding((16 * d).toInt(), (11 * d).toInt(), (16 * d).toInt(), (11 * d).toInt())
+                if (rippleRes != 0) setBackgroundResource(rippleRes)
+                addView(disc, LinearLayout.LayoutParams((28 * d).toInt(), (28 * d).toInt()))
+                addView(text, LinearLayout.LayoutParams(
+                    ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT
+                ).apply { marginStart = (14 * d).toInt() })
+                setOnClickListener {
+                    pw.dismiss()
+                    action()
+                }
+            }
+            content.addView(r)
         }
-        menu.show()
+        row("i", "App info") { openAppInfo(task) }
+        row("\u2715", "Close") { carousel.dismissCard(card, -1500f) }
+        row("\u25A0", "Force stop") {
+            Thread { Actions.forceStop(listOf(task), emptySet()) }.start()
+            carousel.dismissCard(card, -1500f)
+        }
+
+        card.chev?.text = "\u25B4"
+        pw.setOnDismissListener { card.chev?.text = "\u25BE" }
+
+        val loc = IntArray(2)
+        anchor.getLocationOnScreen(loc)
+        val scale = card.view.scaleX
+        pw.showAtLocation(
+            anchor, Gravity.NO_GRAVITY, loc[0], loc[1] + (anchor.height * scale).toInt() + (6 * d).toInt()
+        )
+        // springs open from the pill's corner
+        content.pivotX = 0f
+        content.pivotY = 0f
+        content.alpha = 0f
+        physics.start(SpringMotion(0f, 0f, 1f, 22f, 0.75f, 0.002f, 0.02f) { t ->
+            val k = 0.8f + 0.2f * t
+            content.scaleX = k
+            content.scaleY = k
+            content.alpha = t.coerceIn(0f, 1f)
+        })
     }
 
     /** Long-press on the app icon / name opens that app's system "App info" page. */
