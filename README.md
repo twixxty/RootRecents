@@ -45,7 +45,7 @@ Screenshot (opens the focused app and presses the screenshot key), Clear all, or
 card at the left end of the row can be turned off.
 
 ## Bottom trigger (Settings > Bottom trigger)
-A thin overlay strip along the bottom edge. Swipe up and let go: home screen. Swipe up and hold: recents; the
+An accessibility service (switched on through root, no dialog) puts a thin touch strip flush with the bottom edge, so it also works over apps like system Settings that hide ordinary overlays. Swipe up and let go: home screen. Swipe up and hold: recents; the
 screen blurs, cards peek in from the left and follow your finger elastically (nearer cards move more,
 they shrink as you go up); let go and they spring into place. Sensitivity (zone height), swipe length
 and hold time are adjustable.

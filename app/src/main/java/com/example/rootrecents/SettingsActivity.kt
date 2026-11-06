@@ -71,6 +71,10 @@ class SettingsActivity : Activity() {
         slider("Screen corner radius (used if not detected)", Config.RADIUS_DP, showPreview = true) { "$it dp" }
         note("While you drag the radius slider the screen's edge is outlined so you can match it.")
 
+        slider("Card to app: expand speed", Config.OPEN_SPEED) { "$it%" }
+        slider("Card to app: hold before fade", Config.OPEN_HOLD) { "$it ms" }
+        slider("Card to app: fade duration", Config.OPEN_FADE) { "$it ms" }
+
         section("Foreground app")
         toggle("Show the app that is in the foreground", cfg.showForeground) { cfg.showForeground = it }
 
@@ -81,7 +85,9 @@ class SettingsActivity : Activity() {
         slider("Swipe length", Config.TRIG_LENGTH) { "$it dp" }
         slider("Hold time", Config.TRIG_HOLD) { "$it ms" }
         note(
-            "A thin strip along the bottom edge. Swipe up and let go: home screen. Swipe up and hold: " +
+            "Uses an accessibility service (switched on for you through root) so it keeps working " +
+                "over apps like system Settings that hide normal overlays. " +
+                "A thin strip along the bottom edge. Swipe up and let go: home screen. Swipe up and hold: " +
                 "recents. With the peek on, the screen blurs and the cards peek in and follow your " +
                 "finger until you let go. If your system gesture bar swallows the swipe, make the " +
                 "zone taller."
@@ -104,7 +110,7 @@ class SettingsActivity : Activity() {
                 .setTitle("Reset all settings?")
                 .setMessage("Every option goes back to its default.")
                 .setPositiveButton("Reset") { _, _ ->
-                    TriggerService.stop(this)
+                    Thread { Actions.setTriggerService(false) }.start()
                     cfg.resetAll()
                     recreate()
                 }
@@ -120,34 +126,29 @@ class SettingsActivity : Activity() {
     override fun onPause() {
         super.onPause()
         // Rebuild the trigger strip so new size / length / hold values apply.
-        if (cfg.triggerEnabled && android.provider.Settings.canDrawOverlays(this)) TriggerService.start(this)
+        TriggerAccessibilityService.instance?.rebuild()
     }
 
     private fun setTrigger(on: Boolean) {
-        if (!on) {
-            cfg.triggerEnabled = false
-            TriggerService.stop(this)
-            return
-        }
+        cfg.triggerEnabled = on
         val app = applicationContext
         Thread {
-            Actions.ensureOverlayPermission(app)
-            Actions.grantNotifications(app)
-            runOnUiThread {
-                if (android.provider.Settings.canDrawOverlays(this)) {
-                    cfg.triggerEnabled = true
-                    TriggerService.start(this)
-                } else {
-                    Toast.makeText(
-                        this, "Allow \"Display over other apps\" for Root Recents first", Toast.LENGTH_LONG
-                    ).show()
-                    startActivity(
-                        Intent(
-                            android.provider.Settings.ACTION_MANAGE_OVERLAY_PERMISSION,
-                            android.net.Uri.parse("package:$packageName")
-                        )
-                    )
+            Actions.setTriggerService(on)
+            if (on) {
+                Thread.sleep(1200)
+                runOnUiThread {
+                    val svc = TriggerAccessibilityService.instance
+                    if (svc == null) {
+                        Toast.makeText(
+                            this,
+                            "Couldn't switch on the accessibility service. Enable \"Root Recents\" in " +
+                                "Settings > Accessibility.",
+                            Toast.LENGTH_LONG
+                        ).show()
+                    } else svc.rebuild()
                 }
+            } else {
+                runOnUiThread { TriggerAccessibilityService.instance?.rebuild() }
             }
         }.start()
     }
@@ -380,6 +381,7 @@ class SettingsActivity : Activity() {
             }
 
             override fun onStopTrackingTouch(sb: SeekBar) {
+                TriggerAccessibilityService.instance?.rebuild()
                 if (showPreview) hidePreview()
             }
         })

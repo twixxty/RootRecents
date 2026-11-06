@@ -36,6 +36,14 @@ class Config private constructor(private val sp: SharedPreferences) {
         // ---- opening animation / screen shape ----
         val RADIUS_DP = IntSpec("radiusDp", 28, 0, 70)
 
+        // ---- card -> app transition ----
+        /** Speed of the card growing to fill the screen (percent). */
+        val OPEN_SPEED = IntSpec("openSpeed", 100, 40, 220)
+        /** Extra time (ms) the full-screen cover stays after the app has started. */
+        val OPEN_HOLD = IntSpec("openHold", 150, 0, 1000)
+        /** How long (ms) the cover takes to fade away. */
+        val OPEN_FADE = IntSpec("openFade", 250, 40, 1000)
+
         // ---- bottom trigger ----
         /** Height of the touch zone along the bottom edge, in dp (bigger = easier to hit). */
         val TRIG_ZONE = IntSpec("trigZone", 24, 8, 80)

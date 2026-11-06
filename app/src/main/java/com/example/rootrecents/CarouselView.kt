@@ -1147,7 +1147,7 @@ class CarouselView @JvmOverloads constructor(ctx: Context, attrs: AttributeSet? 
         busy = true
         physics.cancel(c.dragM)
         openingCard = c
-        spring(0f, 1f, 42f, 1f, 0.01f, 0.1f) { fadeOthers = it }
+        spring(0f, 1f, 120f, 1f, 0.02f, 0.5f) { fadeOthers = it }
         postDelayed({
             spring(c.ea, 0f, 45f, 1f, 0.01f, 0.1f) { c.ea = it }
         }, 70)

@@ -352,7 +352,8 @@ class RecentsActivity : Activity() {
         var ctl: OpenOverlay.Controller? = null
         ctl = OpenOverlay.play(
             appCtx, task.thumb, task.icon, rect, carousel.cardRadiusPx() * scale,
-            screenRadiusPx(), config.openEffect, tint, config.blurRadiusPx * 0.7f, config.omegaScale
+            screenRadiusPx(), config.openEffect, tint, config.blurRadiusPx * 0.7f,
+            config.int(Config.OPEN_SPEED) / 100f, config.int(Config.OPEN_HOLD), config.int(Config.OPEN_FADE)
         ) {
             // The screen is covered: now it is safe to start the app and let this window go.
             startApp { ctl?.launched() }

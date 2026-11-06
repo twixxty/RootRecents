@@ -25,6 +25,7 @@ class Physics {
     private val choreographer = Choreographer.getInstance()
     private var last = 0L
     private var posted = false
+    private var inFrame = false
 
     /** Called after every frame in which something moved (apply positions here). */
     var onFrameEnd: (() -> Unit)? = null
@@ -33,9 +34,11 @@ class Physics {
 
     fun start(m: Motion): Motion {
         if (!active.contains(m)) active.add(m)
-        if (!posted) {
+        // Starting a motion from inside a frame (e.g. a scroll updating the stack) must not post a
+        // second callback or reset the clock: that made the motions run at the wrong speed, in
+        // double steps, which looked like jumping.
+        if (!posted && !inFrame) {
             posted = true
-            last = 0L
             choreographer.postFrameCallback(callback)
         }
         return m
@@ -51,6 +54,7 @@ class Physics {
 
     private fun frame(now: Long) {
         posted = false
+        inFrame = true
         val dt = if (last == 0L) 1f / 60f else ((now - last) / 1e9f).coerceIn(0.001f, 0.034f)
         last = now
 
@@ -64,6 +68,7 @@ class Physics {
             }
         }
         onFrameEnd?.invoke()
+        inFrame = false
 
         if (active.isNotEmpty()) {
             posted = true

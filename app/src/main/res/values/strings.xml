@@ -5,4 +5,5 @@
     <string name="no_root">Root access not granted.\nAllow Root Recents in Magisk, then open it again.</string>
     <string name="shortcut_settings_short">Settings</string>
     <string name="shortcut_settings_long">Root Recents settings</string>
+    <string name="trigger_desc">Bottom swipe trigger for Root Recents: a thin touch strip along the bottom edge that opens the app switcher or goes home. It does not read any screen content.</string>
 </resources>

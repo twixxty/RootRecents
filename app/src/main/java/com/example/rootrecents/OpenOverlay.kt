@@ -68,6 +68,8 @@ object OpenOverlay {
         washColor: Int,
         blurPx: Float,
         omegaScale: Float,
+        holdMs: Int,
+        fadeMs: Int,
         onFilled: () -> Unit
     ): Controller? {
         val app = ctx.applicationContext
@@ -121,6 +123,12 @@ object OpenOverlay {
         wash.pivotY = 0f
         holder.addView(wash, FrameLayout.LayoutParams(sw, sh))
 
+        // A solid scrim behind the card fades in as it grows, so nothing from the switcher or the
+        // old screen shows around it (or in its rounded corners) by the time it fills the screen.
+        val scrim = View(app)
+        scrim.setBackgroundColor(washColor or 0xFF000000.toInt())
+        scrim.alpha = 0f
+        root.addView(scrim, FrameLayout.LayoutParams(sw, sh))
         root.addView(holder, FrameLayout.LayoutParams(sw, sh))
 
         val lp = WindowManager.LayoutParams(
@@ -184,19 +192,22 @@ object OpenOverlay {
         fun fade() {
             if (fading) return
             fading = true
-            physics.start(SpringMotion(1f, 0f, 0f, 10f * omegaScale, 1f, 0.01f, 0.1f) { a ->
+            // critically damped: ~97% done after about 5/omega seconds
+            val omega = 5f / (fadeMs.coerceAtLeast(40) / 1000f)
+            physics.start(SpringMotion(1f, 0f, 0f, omega, 1f, 0.01f, 0.1f) { a ->
                 root.alpha = a.coerceIn(0f, 1f)
                 if (a <= 0.02f) remove()
             })
         }
         ctl.tryFade = {
             // a short beat so the app's first frame is on screen before the cover goes away
-            if (ctl.filled && ctl.launched) root.postDelayed({ fade() }, 140)
+            if (ctl.filled && ctl.launched) root.postDelayed({ fade() }, holdMs.toLong())
         }
 
         physics.start(SpringMotion(0f, 0f, 1f, 13f * omegaScale, 0.95f, 0.002f, 0.02f) { t ->
             val e = t.coerceIn(0f, 1f)
             apply(t.coerceIn(0f, 1.02f))
+            scrim.alpha = ((e - 0.05f) / 0.7f).coerceIn(0f, 1f)
             when (effect) {
                 0 -> if (Build.VERSION.SDK_INT >= 31) {
                     val r = (blurPx * e).toInt()

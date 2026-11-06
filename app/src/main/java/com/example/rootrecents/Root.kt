@@ -127,9 +127,22 @@ object Actions {
         Root.exec("appops set ${ctx.packageName} SYSTEM_ALERT_WINDOW allow")
     }
 
-    /** Notifications permission for the trigger service's (required) foreground notification. */
-    fun grantNotifications(ctx: Context) {
-        Root.exec("pm grant ${ctx.packageName} android.permission.POST_NOTIFICATIONS")
+    /** Switches the bottom-trigger accessibility service on or off (no dialog, through root). */
+    fun setTriggerService(on: Boolean) {
+        val comp = TriggerAccessibilityService.COMPONENT
+        val cmd = if (on) {
+            "cur=\$(settings get secure enabled_accessibility_services); " +
+                "case \":\$cur:\" in *:$comp:*) ;; " +
+                "*) if [ \"\$cur\" = null ] || [ -z \"\$cur\" ]; then new=$comp; else new=\"\$cur:$comp\"; fi; " +
+                "settings put secure enabled_accessibility_services \"\$new\";; esac; " +
+                "settings put secure accessibility_enabled 1"
+        } else {
+            "cur=\$(settings get secure enabled_accessibility_services); " +
+                "new=\$(echo \"\$cur\" | sed \"s#$comp##; s#::#:#g; s#^:##; s#:\\\$##\"); " +
+                "if [ -z \"\$new\" ]; then settings delete secure enabled_accessibility_services; " +
+                "else settings put secure enabled_accessibility_services \"\$new\"; fi"
+        }
+        Root.exec(cmd)
     }
 
     /** Takes a screenshot the way the screenshot key does (KEYCODE_SYSRQ). */
