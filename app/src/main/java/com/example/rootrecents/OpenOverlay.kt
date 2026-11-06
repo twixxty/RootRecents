@@ -2,87 +2,30 @@ package com.example.rootrecents
 
 import android.content.Context
 import android.graphics.Bitmap
-import android.graphics.Canvas
-import android.graphics.Paint
-import android.graphics.Path
+import android.graphics.Outline
 import android.graphics.PixelFormat
 import android.graphics.RectF
 import android.graphics.RenderEffect
 import android.graphics.Shader
+import android.graphics.drawable.ColorDrawable
 import android.graphics.drawable.Drawable
 import android.os.Build
 import android.view.View
+import android.view.ViewOutlineProvider
 import android.view.WindowManager
-import kotlin.math.max
+import android.widget.FrameLayout
+import android.widget.ImageView
 
 /**
  * The opening animation lives in its own overlay window, so it keeps playing on top of the app
- * after the switcher has closed: the card grows to fill the screen (corners follow the screen's
- * radius), gets blurred or washed with a colour while it does, then fades away.
+ * after the switcher has closed. Everything in it is fully opaque until the final fade:
+ * the card grows (blurring, or washing to a colour) until it fills the screen with the screen's
+ * corner radius, the app is started underneath, and only then does the cover fade away.
+ *
+ * The blur is applied to the picture itself (not to a see-through window), so its edges stay
+ * solid; the rounded corners are cut afterwards by clipping the container.
  */
 object OpenOverlay {
-
-    private class CardView(
-        ctx: Context,
-        val bmp: Bitmap?,
-        val icon: Drawable?,
-        val from: RectF,
-        val fromRadius: Float,
-        val toRadius: Float,
-        val screen: RectF,
-        val washColor: Int
-    ) : View(ctx) {
-        var t = 0f
-        var wash = 0f
-        private val paint = Paint(Paint.ANTI_ALIAS_FLAG or Paint.FILTER_BITMAP_FLAG)
-        private val path = Path()
-        private val rect = RectF()
-        private val fill = Paint().apply { color = 0xFF1E1E1E.toInt() }
-        private val washPaint = Paint()
-
-        override fun onDraw(canvas: Canvas) {
-            rect.set(
-                from.left + (screen.left - from.left) * t,
-                from.top + (screen.top - from.top) * t,
-                from.right + (screen.right - from.right) * t,
-                from.bottom + (screen.bottom - from.bottom) * t
-            )
-            val r = (fromRadius + (toRadius - fromRadius) * t).coerceAtLeast(0f)
-            path.reset()
-            path.addRoundRect(rect, r, r, Path.Direction.CW)
-            canvas.save()
-            canvas.clipPath(path)
-            if (bmp != null) {
-                // centre-crop the screenshot into the current rectangle
-                val s = max(rect.width() / bmp.width, rect.height() / bmp.height)
-                val w = bmp.width * s
-                val h = bmp.height * s
-                val l = rect.centerX() - w / 2f
-                val tp = rect.centerY() - h / 2f
-                canvas.save()
-                canvas.translate(l, tp)
-                canvas.scale(s, s)
-                canvas.drawBitmap(bmp, 0f, 0f, paint)
-                canvas.restore()
-            } else {
-                canvas.drawRect(rect, fill)
-                icon?.let {
-                    val half = rect.width() / 4f
-                    it.setBounds(
-                        (rect.centerX() - half).toInt(), (rect.centerY() - half).toInt(),
-                        (rect.centerX() + half).toInt(), (rect.centerY() + half).toInt()
-                    )
-                    it.draw(canvas)
-                }
-            }
-            if (wash > 0f) {
-                washPaint.color = washColor
-                washPaint.alpha = (wash.coerceIn(0f, 1f) * 255f).toInt()
-                canvas.drawRect(rect, washPaint)
-            }
-            canvas.restore()
-        }
-    }
 
     /** Lets the caller say when the app has actually started, which is when the overlay fades. */
     class Controller internal constructor() {
@@ -98,6 +41,11 @@ object OpenOverlay {
                 tryFade?.invoke()
             }
         }
+    }
+
+    private class Holder(ctx: Context) : FrameLayout(ctx) {
+        val rect = RectF()
+        var radius = 0f
     }
 
     /**
@@ -126,18 +74,57 @@ object OpenOverlay {
         if (!android.provider.Settings.canDrawOverlays(app)) return null
         val wm = app.getSystemService(WindowManager::class.java) ?: return null
 
-        val screen = RectF()
+        val sw: Int
+        val sh: Int
         if (Build.VERSION.SDK_INT >= 30) {
-            val b = wm.currentWindowMetrics.bounds
-            screen.set(0f, 0f, b.width().toFloat(), b.height().toFloat())
+            val b = wm.maximumWindowMetrics.bounds
+            sw = b.width(); sh = b.height()
         } else {
-            val dm = app.resources.displayMetrics
-            screen.set(0f, 0f, dm.widthPixels.toFloat(), dm.heightPixels.toFloat())
+            val m = android.util.DisplayMetrics()
+            @Suppress("DEPRECATION")
+            wm.defaultDisplay.getRealMetrics(m)
+            sw = m.widthPixels; sh = m.heightPixels
         }
 
-        val view = CardView(app, bmp, icon, from, fromRadius, toRadius, screen, washColor)
+        // root -> holder (rounded clip) -> picture (+ colour wash)
+        val root = FrameLayout(app)
+        val holder = Holder(app)
+        holder.outlineProvider = object : ViewOutlineProvider() {
+            override fun getOutline(view: View, outline: Outline) {
+                val h = view as Holder
+                outline.setRoundRect(
+                    h.rect.left.toInt(), h.rect.top.toInt(),
+                    h.rect.right.toInt(), h.rect.bottom.toInt(), h.radius
+                )
+            }
+        }
+        holder.clipToOutline = true
+
+        val pic = ImageView(app)
+        if (bmp != null) {
+            pic.scaleType = ImageView.ScaleType.CENTER_CROP
+            pic.setImageBitmap(bmp)
+        } else {
+            pic.setBackgroundColor(0xFF1E1E1E.toInt())
+            pic.scaleType = ImageView.ScaleType.CENTER_INSIDE
+            pic.setImageDrawable(icon)
+            pic.setPadding(sw / 4, 0, sw / 4, 0)
+        }
+        pic.pivotX = 0f
+        pic.pivotY = 0f
+        holder.addView(pic, FrameLayout.LayoutParams(sw, sh))
+
+        val wash = View(app)
+        wash.setBackgroundColor(washColor or 0xFF000000.toInt())
+        wash.alpha = 0f
+        wash.pivotX = 0f
+        wash.pivotY = 0f
+        holder.addView(wash, FrameLayout.LayoutParams(sw, sh))
+
+        root.addView(holder, FrameLayout.LayoutParams(sw, sh))
+
         val lp = WindowManager.LayoutParams(
-            screen.width().toInt(), screen.height().toInt(),
+            sw, sh,
             WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY,
             WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or
                 WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE or
@@ -146,25 +133,47 @@ object OpenOverlay {
             PixelFormat.TRANSLUCENT
         )
         lp.gravity = android.view.Gravity.TOP or android.view.Gravity.START
+        if (Build.VERSION.SDK_INT >= 30) lp.fitInsetsTypes = 0
         if (Build.VERSION.SDK_INT >= 28) {
             lp.layoutInDisplayCutoutMode =
                 WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_ALWAYS
         }
+
+        // first frame: exactly where the card is
+        fun apply(t: Float) {
+            val l = from.left + (0f - from.left) * t
+            val tp = from.top + (0f - from.top) * t
+            val r = from.right + (sw - from.right) * t
+            val b = from.bottom + (sh - from.bottom) * t
+            holder.rect.set(l, tp, r, b)
+            holder.radius = (fromRadius + (toRadius - fromRadius) * t).coerceAtLeast(0f)
+            val sx = (r - l) / sw
+            val sy = (b - tp) / sh
+            for (v in arrayOf(pic, wash)) {
+                v.scaleX = sx
+                v.scaleY = sy
+                v.translationX = l
+                v.translationY = tp
+            }
+            holder.invalidateOutline()
+        }
+        apply(0f)
+
         try {
-            wm.addView(view, lp)
+            wm.addView(root, lp)
         } catch (e: Exception) {
             return null
         }
 
         val ctl = Controller()
-        ctl.view = view
+        ctl.view = root
         val physics = Physics()
         var removed = false
         fun remove() {
             if (removed) return
             removed = true
             try {
-                wm.removeViewImmediate(view)
+                wm.removeViewImmediate(root)
             } catch (e: Exception) {
                 // already gone
             }
@@ -172,36 +181,34 @@ object OpenOverlay {
 
         var fading = false
         var lastBlur = -1
-        physics.onFrameEnd = { view.invalidate() }
-
         fun fade() {
             if (fading) return
             fading = true
             physics.start(SpringMotion(1f, 0f, 0f, 10f * omegaScale, 1f, 0.01f, 0.1f) { a ->
-                view.alpha = a.coerceIn(0f, 1f)
+                root.alpha = a.coerceIn(0f, 1f)
                 if (a <= 0.02f) remove()
             })
         }
         ctl.tryFade = {
             // a short beat so the app's first frame is on screen before the cover goes away
-            if (ctl.filled && ctl.launched) view.postDelayed({ fade() }, 140)
+            if (ctl.filled && ctl.launched) root.postDelayed({ fade() }, 140)
         }
 
         physics.start(SpringMotion(0f, 0f, 1f, 13f * omegaScale, 0.95f, 0.002f, 0.02f) { t ->
-            view.t = t
             val e = t.coerceIn(0f, 1f)
+            apply(t.coerceIn(0f, 1.02f))
             when (effect) {
                 0 -> if (Build.VERSION.SDK_INT >= 31) {
                     val r = (blurPx * e).toInt()
                     if (r != lastBlur) {
                         lastBlur = r
-                        view.setRenderEffect(
+                        pic.setRenderEffect(
                             if (r > 0) RenderEffect.createBlurEffect(r.toFloat(), r.toFloat(), Shader.TileMode.CLAMP)
                             else null
                         )
                     }
                 }
-                1 -> view.wash = e * 0.85f
+                1 -> wash.alpha = e // solid colour by the time it fills the screen
             }
             if (!ctl.filled && t > 0.97f) {
                 ctl.filled = true
@@ -210,7 +217,7 @@ object OpenOverlay {
             }
         })
         // never leave the screen covered if the app is slow or never reports back
-        view.postDelayed({ ctl.launched = true; ctl.filled = true; fade() }, 3500)
+        root.postDelayed({ ctl.launched = true; ctl.filled = true; fade() }, 3500)
         return ctl
     }
 }

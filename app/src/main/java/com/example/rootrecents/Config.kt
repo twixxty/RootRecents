@@ -165,7 +165,7 @@ class Config private constructor(private val sp: SharedPreferences) {
     }
 
     /** Momentum decay per second (velocity *= e^-decay each second). */
-    val decay: Float get() = 1.5f + int(SCROLL_FRICTION) * 0.12f
+    val decay: Float get() = 1.0f + int(SCROLL_FRICTION) * 0.07f
 
     val velocityScale: Float get() = 1f
     val dragScale: Float get() = 1f
@@ -190,8 +190,8 @@ class Config private constructor(private val sp: SharedPreferences) {
     /** Damping ratio when neighbours fall back after an un-cleared swipe (lower = more bounce). */
     val liftBounceZeta: Float get() = (0.75f - 0.0055f * int(BOUNCE)).coerceAtLeast(0.15f)
 
-    /** Gravity for the swipe-up-to-close glide, in dp/s^2. */
-    val pullGravity: Float get() = 400f + 14f * int(PULL_GRAVITY)
+    /** How quickly the cards settle back down after the bottom swipe-up lift (spring frequency). */
+    val pullGravity: Float get() = 6f + 0.14f * int(PULL_GRAVITY)
 
     /** How strongly the bounce (kick) is felt, 0..1. */
     val bounceAmount: Float get() = 0.3f + int(BOUNCE) / 100f * 0.9f

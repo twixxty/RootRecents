@@ -61,10 +61,14 @@ class RecentsActivity : Activity() {
     private val prefs by lazy { getSharedPreferences("recents", MODE_PRIVATE) }
 
     private val peekListener = object : PeekBridge.Listener {
-        override fun onMove(fx: Float, fy: Float, dx: Float, dy: Float) =
-            carousel.peekMove(fx, fy, dx, dy)
+        override fun onMove(fx: Float, fy: Float, dx: Float, dy: Float) {
+            if (carousel.visibility == View.VISIBLE) carousel.peekMove(fx, fy, dx, dy)
+        }
 
-        override fun onRelease() = carousel.peekRelease()
+        override fun onRelease() {
+            // with nothing to show, letting go just unblurs and closes
+            if (carousel.visibility == View.VISIBLE) carousel.peekRelease() else closeAnimated()
+        }
     }
 
     // ---------------------------------------------------------------- lifecycle
@@ -266,6 +270,7 @@ class RecentsActivity : Activity() {
         empty.alpha = 0f
         physics.start(SpringMotion(0f, 0f, 1f, 12f, 1f, 0.002f, 0.02f) { empty.alpha = it })
         animateBackdrop(1f)
+        if (peekMode) PeekBridge.attach(peekListener)
     }
 
     // ---------------------------------------------------------------- backdrop (blur + tint)
@@ -301,9 +306,12 @@ class RecentsActivity : Activity() {
     private fun closeAnimated() {
         if (closing || launching) return
         closing = true
-        carousel.playExit { finishNoAnim() }
+        // close once both the cards have left and the blur is gone
+        var pending = 2
+        val one = { if (--pending == 0) finishNoAnim() }
+        if (carousel.visibility == View.VISIBLE && carousel.taskCount() > 0) carousel.playExit { one() } else one()
         empty.animate().alpha(0f).setDuration(140).start()
-        animateBackdrop(0f)
+        animateBackdrop(0f) { one() }
         carousel.postDelayed({ finishNoAnim() }, 1400) // safety net
     }
 
