@@ -24,7 +24,7 @@ data class RecentTask(
     val foreground: Boolean
 )
 
-class RecentsResult(val tasks: List<RecentTask>, val allIds: Set<Int>)
+class RecentsResult(val tasks: List<RecentTask>, val allIds: Set<Int>, val noRoot: Boolean = false)
 
 /**
  * Reads the system's recent task list with `dumpsys activity recents` and loads the
@@ -70,7 +70,9 @@ object RecentTasks {
         showForeground: Boolean,
         liveShot: Bitmap?
     ): RecentsResult {
-        val all = parse(Root.exec("dumpsys activity recents"), ctx.packageName)
+        val dump = Root.exec("dumpsys activity recents")
+        if (dump.isBlank()) return RecentsResult(emptyList(), emptySet(), true)
+        val all = parse(dump, ctx.packageName)
         val handles = userHandles(ctx)
 
         // Our own task is excluded from recents, so the most recent entry is the app that was in
@@ -83,18 +85,13 @@ object RecentTasks {
             !hidden.contains(p.id.toString()) && (showForeground || p.id != fgId)
         }
 
-        // Each snapshot read spawns `su`, so do them in parallel.
-        val pool = Executors.newFixedThreadPool(4)
-        val futures = wanted.map { p -> pool.submit(Callable<Snap> { loadSnapshot(p.id) }) }
+        // One `su` call reads every snapshot, then the JPEGs are decoded in parallel.
+        val snaps = loadSnapshots(wanted.map { it.id })
 
         val tasks = ArrayList<RecentTask>()
         var liveUsed = false
         wanted.forEachIndexed { i, p ->
-            val snap = try {
-                futures[i].get()
-            } catch (e: Exception) {
-                Snap(null, null, null)
-            }
+            val snap = snaps[p.id] ?: Snap(null, null, null)
             // The directory a snapshot lives in is the most reliable "which user" signal.
             val userId = snap.user ?: p.bestGuessUser
             val res = resolve(ctx, p.pkg, userId, handles[userId])
@@ -120,7 +117,6 @@ object RecentTasks {
                 )
             }
         }
-        pool.shutdown()
         return RecentsResult(tasks, parsed.map { it.id }.toSet())
     }
 
@@ -225,6 +221,57 @@ object RecentTasks {
             }
             i = j
         }
+        return out
+    }
+
+    /** Reads the snapshots of all [ids] with a single root shell. Output: "@@id size path\n" + bytes. */
+    private fun loadSnapshots(ids: List<Int>): Map<Int, Snap> {
+        if (ids.isEmpty()) return emptyMap()
+        val cmd = "for id in ${ids.joinToString(" ")}; do f=''; " +
+            "for c in /data/system_ce/*/snapshots/\$id.jpg /data/system_ce/*/snapshots/\${id}_reduced.jpg; do " +
+            "if [ -f \"\$c\" ]; then f=\$c; break; fi; done; " +
+            "if [ -n \"\$f\" ]; then echo \"@@\$id \$(stat -c %s \"\$f\") \$f\"; cat \"\$f\"; echo; fi; done"
+        val bytes = Root.execBytes(cmd) ?: return emptyMap()
+
+        class Raw(val id: Int, val path: String, val start: Int, val size: Int)
+        val raws = ArrayList<Raw>()
+        var i = 0
+        val at = '@'.code.toByte()
+        while (i < bytes.size - 2) {
+            if (bytes[i] == at && bytes[i + 1] == at) {
+                var nl = i
+                while (nl < bytes.size && bytes[nl] != '\n'.code.toByte()) nl++
+                if (nl >= bytes.size) break
+                val parts = String(bytes, i + 2, nl - i - 2).split(" ", limit = 3)
+                val id = parts.getOrNull(0)?.toIntOrNull()
+                val size = parts.getOrNull(1)?.toIntOrNull()
+                if (id == null || size == null || nl + 1 + size > bytes.size) break
+                raws.add(Raw(id, parts.getOrElse(2) { "" }, nl + 1, size))
+                i = nl + 1 + size
+            } else i++
+        }
+
+        val pool = Executors.newFixedThreadPool(4)
+        val opts = BitmapFactory.Options().apply { inSampleSize = 2 }
+        val futures = raws.map { r ->
+            pool.submit(Callable<Pair<Int, Snap>> {
+                val user = snapUserRe.find(r.path)?.groupValues?.get(1)?.toIntOrNull()
+                val bmp = BitmapFactory.decodeByteArray(bytes, r.start, r.size, BitmapFactory.Options().apply {
+                    inSampleSize = opts.inSampleSize
+                })
+                Pair(r.id, Snap(user, bmp, r.path))
+            })
+        }
+        val out = HashMap<Int, Snap>()
+        for (f in futures) {
+            try {
+                val (id, snap) = f.get()
+                out[id] = snap
+            } catch (e: Exception) {
+                // that one just has no thumbnail
+            }
+        }
+        pool.shutdown()
         return out
     }
 

@@ -106,6 +106,9 @@ class RecentsActivity : Activity() {
         empty.setOnClickListener { closeAnimated() }
 
         setupBottomButton()
+        // the blur starts right away (also while the list is still loading), so a swipe-and-hold
+        // shows something immediately
+        animateBackdrop(1f)
         load()
     }
 
@@ -183,46 +186,22 @@ class RecentsActivity : Activity() {
 
     private fun load() {
         val appCtx = applicationContext
+        // started by the trigger the moment the finger touched the strip, or start it now
+        val job = Prefetch.take() ?: Prefetch.begin(appCtx)
         Thread {
-            if (!Root.available()) {
-                runOnUiThread {
-                    empty.setText(R.string.no_root)
-                    showEmpty()
-                }
-                return@Thread
-            }
-            Actions.ensureOverlayPermission(appCtx)
-            val hidden = (prefs.getStringSet("hidden", emptySet()) ?: emptySet()).toMutableSet()
-
-            // A fresh screenshot makes the foreground card as up to date as it can be. It is taken
-            // now, while our window is still empty and the app is still on screen.
-            var shot: Bitmap? = null
-            val shotThread = if (config.showForeground) {
-                Thread { shot = Root.screenshot() }.also { it.start() }
-            } else null
-
-            val result = RecentTasks.load(this, hidden, config.showForeground, null)
-            shotThread?.join()
-
-            // Forget hidden ids whose tasks no longer exist.
-            hidden.retainAll(result.allIds.map { it.toString() }.toSet())
-            prefs.edit().putStringSet("hidden", hidden).apply()
-
-            var patched = false
-            val tasks = result.tasks.map { t ->
-                val s = shot
-                if (t.foreground && s != null && !patched) {
-                    patched = true
-                    t.copy(thumb = s)
-                } else t
-            }
-            // Oldest on the left, most recent on the right, like stock.
-            val ordered = tasks.reversed()
-
+            if (!android.provider.Settings.canDrawOverlays(appCtx)) Actions.ensureOverlayPermission(appCtx)
+        }.start()
+        Thread {
+            val res = job.await()
             runOnUiThread {
                 if (isDestroyed || isFinishing) return@runOnUiThread
-                loaded = ordered
-                maybeShow()
+                if (res == null || res.noRoot) {
+                    empty.setText(if (res?.noRoot == true) R.string.no_root else R.string.no_recents)
+                    showEmpty()
+                } else {
+                    loaded = res.tasks
+                    maybeShow()
+                }
             }
         }.start()
     }
@@ -375,7 +354,7 @@ class RecentsActivity : Activity() {
     /** The pill on a card: a small Material You menu under it. */
     private fun showMenu(card: CarouselView.Card) {
         val task = card.task ?: return
-        val anchor = card.pill ?: return
+        val anchor = (if (card.pill?.visibility == View.VISIBLE) card.pill else card.header) ?: return
         val d = resources.displayMetrics.density
         val fg = MaterialYou.onContainer(this)
 

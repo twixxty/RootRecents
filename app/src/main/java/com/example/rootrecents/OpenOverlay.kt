@@ -135,12 +135,15 @@ object OpenOverlay {
             sw, sh,
             WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY,
             WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or
-                WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE or
                 WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS or
                 WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN,
             PixelFormat.TRANSLUCENT
         )
         lp.gravity = android.view.Gravity.TOP or android.view.Gravity.START
+        lp.alpha = 1f
+        // It takes the touches while it is up: a pass-through ("not touchable") overlay can be
+        // rendered see-through by the system, and taps during the transition would be accidents.
+        root.setOnTouchListener { _, _ -> true }
         if (Build.VERSION.SDK_INT >= 30) lp.fitInsetsTypes = 0
         if (Build.VERSION.SDK_INT >= 28) {
             lp.layoutInDisplayCutoutMode =

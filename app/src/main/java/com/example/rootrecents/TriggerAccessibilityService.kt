@@ -187,6 +187,8 @@ class TriggerAccessibilityService : AccessibilityService() {
                 state = S.TRACK
                 gestureActive = true
                 sx = e.rawX; sy = e.rawY
+                // start loading the task list now, so it is ready when the switcher opens
+                if (!RecentsActivity.visible) Prefetch.begin(this)
             }
 
             MotionEvent.ACTION_MOVE -> {

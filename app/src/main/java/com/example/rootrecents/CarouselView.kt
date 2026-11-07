@@ -407,7 +407,8 @@ class CarouselView @JvmOverloads constructor(ctx: Context, attrs: AttributeSet? 
             if (mode == Mode.STACK) {
                 // The icon always stays; the title stays while a card is at or in front of the
                 // focus, and fades out only as the card is tucked behind to the left.
-                c.header?.alpha = 1f
+                // Going behind to the left, the icon fades progressively with distance.
+                c.header?.alpha = if (d >= 0f) 1f else (1f + d * 0.3f).coerceIn(0f, 1f)
                 c.label?.alpha = if (d >= 0f) 1f else (1f + d * 1.6f).coerceIn(0f, 1f)
             }
             // "Clear all" at the left end is only there once you pull beyond the first app.
@@ -723,7 +724,7 @@ class CarouselView @JvmOverloads constructor(ctx: Context, attrs: AttributeSet? 
         when {
             c == null -> onEmptyTap?.invoke()
             c.isClear -> if (c.view.alpha > 0.5f && inPill(c, x, y)) onClearClick?.invoke() else onEmptyTap?.invoke()
-            mode == Mode.NORMAL && hitHeader -> onPillClick?.invoke(c)
+            hitHeader -> onPillClick?.invoke(c)
             else -> onCardClick?.invoke(c)
         }
     }
@@ -1128,7 +1129,8 @@ class CarouselView @JvmOverloads constructor(ctx: Context, attrs: AttributeSet? 
         openS = width.toFloat() / cw
         openY = height / 2f - c.view.top - cardH / 2f - (headerH / 2f) * openS
         openingCard = c
-        spring(0f, 1f, 14f, 1f, 0.002f, 0.02f) { fadeOthers = it }
+        slideOthers(c)
+        spring(0f, 1f, 11f, 1f, 0.002f, 0.02f) { fadeOthers = it }
         var fired = false
         spring(0f, 1f, 10f, max(zeta, 0.92f), 0.002f, 0.02f) { t ->
             c.openT = t
@@ -1143,11 +1145,23 @@ class CarouselView @JvmOverloads constructor(ctx: Context, attrs: AttributeSet? 
      * The card on screen is about to be replaced by the overlay window's copy: fade the other
      * cards, then hide this one a moment later and call [onDone].
      */
+    private fun slideOthers(c: Card) {
+        val w = sw().toFloat()
+        for (o in cards) {
+            if (o === c) continue
+            // newer cards go right, older ones go left
+            val dir = if (o.slot > c.slot) 1f else -1f
+            val target = dir * (w * 0.75f + abs(o.slot - c.slot) * dp(40f))
+            spring(o.ex, target, 8.5f, 1f, 2f, 40f) { o.ex = it }
+        }
+    }
+
     fun overlayHandoff(c: Card, onDone: () -> Unit) {
         busy = true
         physics.cancel(c.dragM)
         openingCard = c
-        spring(0f, 1f, 120f, 1f, 0.02f, 0.5f) { fadeOthers = it }
+        slideOthers(c)
+        spring(0f, 1f, 11f, 1f, 0.01f, 0.1f) { fadeOthers = it }
         postDelayed({
             spring(c.ea, 0f, 45f, 1f, 0.01f, 0.1f) { c.ea = it }
         }, 70)
