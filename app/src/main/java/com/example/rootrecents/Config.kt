@@ -150,6 +150,11 @@ class Config private constructor(private val sp: SharedPreferences) {
         get() = sp.getBoolean("triggerHoldOn", true)
         set(v) = sp.edit().putBoolean("triggerHoldOn", v).apply()
 
+    /** Read touches with root instead of an overlay strip (needed on ColorOS' gesture handle). */
+    var rawTouch: Boolean
+        get() = sp.getBoolean("rawTouch", false)
+        set(v) = sp.edit().putBoolean("rawTouch", v).apply()
+
     // ---- derived values used by the physics ----
 
     val blur: Int get() = int(BLUR)

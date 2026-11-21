@@ -5,23 +5,32 @@ import android.graphics.Bitmap
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.TimeUnit
 
-/** The task list ready to show, oldest first. */
+/** The task list ready to show, oldest first (thumbnails arrive separately). */
 class Loaded(val tasks: List<RecentTask>, val noRoot: Boolean)
 
 /**
- * Loads the task list. The bottom trigger starts this the moment a finger touches the strip, so by
- * the time the swipe has finished and the switcher is on screen the list is usually ready.
+ * Loads the task list in two phases so the cards can appear immediately: first the list (one quick
+ * root call), then the screenshots, which are filled in as soon as they are decoded. The bottom
+ * trigger starts this the moment a finger touches the strip.
  */
 object Prefetch {
 
     class Job(val startedAt: Long) {
         @Volatile
         var result: Loaded? = null
-        val latch = CountDownLatch(1)
+        @Volatile
+        var thumbs: Map<Int, Bitmap> = emptyMap()
+        val listLatch = CountDownLatch(1)
+        val thumbLatch = CountDownLatch(1)
 
         fun await(): Loaded? {
-            latch.await(10, TimeUnit.SECONDS)
+            listLatch.await(10, TimeUnit.SECONDS)
             return result
+        }
+
+        fun awaitThumbs(): Map<Int, Bitmap> {
+            thumbLatch.await(20, TimeUnit.SECONDS)
+            return thumbs
         }
     }
 
@@ -34,11 +43,12 @@ object Prefetch {
         job = j
         Thread {
             try {
-                j.result = load(app)
+                run(app, j)
             } catch (e: Exception) {
-                j.result = Loaded(emptyList(), false)
+                if (j.result == null) j.result = Loaded(emptyList(), false)
             } finally {
-                j.latch.countDown()
+                j.listLatch.countDown()
+                j.thumbLatch.countDown()
             }
         }.start()
         return j
@@ -51,34 +61,39 @@ object Prefetch {
         return if (j != null && System.currentTimeMillis() - j.startedAt < 6000) j else null
     }
 
-    private fun load(ctx: Context): Loaded {
+    private fun run(ctx: Context, j: Job) {
         val config = Config.get(ctx)
         val prefs = ctx.getSharedPreferences("recents", Context.MODE_PRIVATE)
         val hidden = (prefs.getStringSet("hidden", emptySet()) ?: emptySet()).toMutableSet()
 
-        // A fresh screenshot makes the foreground card as up to date as it can be.
+        // A fresh screenshot makes the foreground card as up to date as it can be; it runs alongside.
         var shot: Bitmap? = null
         val shotThread = if (config.showForeground) {
             Thread { shot = Root.screenshot() }.also { it.start() }
         } else null
 
-        val result = RecentTasks.load(ctx, hidden, config.showForeground, null)
-        shotThread?.join()
-        if (result.noRoot) return Loaded(emptyList(), true)
+        val listing = RecentTasks.loadList(ctx, hidden, config.showForeground)
+        if (listing.noRoot) {
+            shotThread?.interrupt()
+            j.result = Loaded(emptyList(), true)
+            return
+        }
 
         // Forget hidden ids whose tasks no longer exist.
-        hidden.retainAll(result.allIds.map { it.toString() }.toSet())
+        hidden.retainAll(listing.allIds.map { it.toString() }.toSet())
         prefs.edit().putStringSet("hidden", hidden).apply()
 
-        var patched = false
-        val tasks = result.tasks.map { t ->
-            val s = shot
-            if (t.foreground && s != null && !patched) {
-                patched = true
-                t.copy(thumb = s)
-            } else t
-        }
         // Oldest on the left, most recent on the right, like stock.
-        return Loaded(tasks.reversed(), false)
+        val tasks = listing.tasks.reversed()
+        j.result = Loaded(tasks, false)
+        j.listLatch.countDown()
+
+        // Newest first is irrelevant (one batch), but only ask for files of tasks we show.
+        val wanted = listing.tasks.map { it.id }.toSet()
+        val map = HashMap(RecentTasks.loadThumbs(listing.paths.filterKeys { it in wanted }))
+        shotThread?.join()
+        val s = shot
+        if (s != null && listing.fgId != -1 && listing.fgId in wanted) map[listing.fgId] = s
+        j.thumbs = map
     }
 }

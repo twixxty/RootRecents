@@ -71,3 +71,7 @@ you want force-stop (a never-stop list is there too).
 - Cards come back after being dismissed: `removeTask` failed on your ROM. Test with
   `su -c "CLASSPATH=$(pm path com.example.rootrecents | cut -d: -f2) app_process /system/bin com.example.rootrecents.TaskRemover <taskId>"`
   (`<id>:true` means it worked).
+
+## 0.11
+- Cards appear as soon as the task list is read; screenshots fill in a moment later.
+- Bottom trigger: new "Read touches with root" setting for ColorOS gesture handle.

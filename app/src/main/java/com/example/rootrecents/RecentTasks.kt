@@ -24,8 +24,6 @@ data class RecentTask(
     val foreground: Boolean
 )
 
-class RecentsResult(val tasks: List<RecentTask>, val allIds: Set<Int>, val noRoot: Boolean = false)
-
 /**
  * Reads the system's recent task list with `dumpsys activity recents` and loads the
  * snapshot JPEGs that system_server keeps in /data/system_ce/<user>/snapshots.
@@ -64,60 +62,59 @@ object RecentTasks {
 
     private class Snap(val user: Int?, val bitmap: Bitmap?, val path: String?)
 
-    fun load(
-        ctx: Context,
-        hidden: Set<String>,
-        showForeground: Boolean,
-        liveShot: Bitmap?
-    ): RecentsResult {
-        val dump = Root.exec("dumpsys activity recents")
-        if (dump.isBlank()) return RecentsResult(emptyList(), emptySet(), true)
+    /** The tasks without thumbnails yet, plus where each task's snapshot file is. */
+    class Listing(
+        val tasks: List<RecentTask>,
+        val allIds: Set<Int>,
+        val paths: Map<Int, String>,
+        val fgId: Int,
+        val noRoot: Boolean = false
+    )
+
+    /** Phase 1, fast: one root call for the task list and the snapshot file names. No image decoding. */
+    fun loadList(ctx: Context, hidden: Set<String>, showForeground: Boolean): Listing {
+        val raw = Root.exec(
+            "dumpsys activity recents; echo '@@SNAPS'; ls -d /data/system_ce/*/snapshots/*.jpg 2>/dev/null"
+        )
+        val k = raw.indexOf("@@SNAPS")
+        val dump = if (k >= 0) raw.substring(0, k) else raw
+        if (dump.isBlank()) return Listing(emptyList(), emptySet(), emptyMap(), -1, true)
+        val files = if (k >= 0) raw.substring(k + 7).lines() else emptyList()
+
+        val paths = HashMap<Int, String>()
+        for (f in files) {
+            val line = f.trim()
+            if (!line.endsWith(".jpg")) continue
+            val name = line.substringAfterLast('/')
+            val id = name.substringBefore('.').substringBefore('_').toIntOrNull() ?: continue
+            val old = paths[id]
+            if (old == null || (old.endsWith("_reduced.jpg") && !line.endsWith("_reduced.jpg"))) paths[id] = line
+        }
+
         val all = parse(dump, ctx.packageName)
         val handles = userHandles(ctx)
-
-        // Our own task is excluded from recents, so the most recent entry is the app that was in
-        // front when the switcher opened (unless that was the home screen).
         val first = all.firstOrNull()
         val fgId = if (first != null && !first.isHome && first.visible != false) first.id else -1
         val parsed = all.filter { !it.isHome }
-
         val wanted = parsed.filter { p ->
             !hidden.contains(p.id.toString()) && (showForeground || p.id != fgId)
         }
 
-        // One `su` call reads every snapshot, then the JPEGs are decoded in parallel.
-        val snaps = loadSnapshots(wanted.map { it.id })
-
         val tasks = ArrayList<RecentTask>()
-        var liveUsed = false
-        wanted.forEachIndexed { i, p ->
-            val snap = snaps[p.id] ?: Snap(null, null, null)
+        for (p in wanted) {
             // The directory a snapshot lives in is the most reliable "which user" signal.
-            val userId = snap.user ?: p.bestGuessUser
-            val res = resolve(ctx, p.pkg, userId, handles[userId])
-            if (res != null) {
-                val isFg = p.id == fgId
-                var thumb = snap.bitmap
-                if (isFg && liveShot != null && !liveUsed) {
-                    thumb = liveShot
-                    liveUsed = true
-                }
-                val cls = if (p.cls.startsWith(".")) p.pkg + p.cls else p.cls
-                tasks.add(
-                    RecentTask(
-                        id = p.id,
-                        userId = userId,
-                        pkg = p.pkg,
-                        component = "${p.pkg}/$cls",
-                        label = res.first,
-                        icon = res.second,
-                        thumb = thumb,
-                        foreground = isFg
-                    )
+            val userId = paths[p.id]?.let { snapUserRe.find(it)?.groupValues?.get(1)?.toIntOrNull() }
+                ?: p.bestGuessUser
+            val res = resolve(ctx, p.pkg, userId, handles[userId]) ?: continue
+            val cls = if (p.cls.startsWith(".")) p.pkg + p.cls else p.cls
+            tasks.add(
+                RecentTask(
+                    id = p.id, userId = userId, pkg = p.pkg, component = "${p.pkg}/$cls",
+                    label = res.first, icon = res.second, thumb = null, foreground = p.id == fgId
                 )
-            }
+            )
         }
-        return RecentsResult(tasks, parsed.map { it.id }.toSet())
+        return Listing(tasks, parsed.map { it.id }.toSet(), paths, fgId)
     }
 
     /** Human-readable dump of what was parsed, for the Diagnostics button in settings. */
@@ -224,16 +221,15 @@ object RecentTasks {
         return out
     }
 
-    /** Reads the snapshots of all [ids] with a single root shell. Output: "@@id size path\n" + bytes. */
-    private fun loadSnapshots(ids: List<Int>): Map<Int, Snap> {
-        if (ids.isEmpty()) return emptyMap()
-        val cmd = "for id in ${ids.joinToString(" ")}; do f=''; " +
-            "for c in /data/system_ce/*/snapshots/\$id.jpg /data/system_ce/*/snapshots/\${id}_reduced.jpg; do " +
-            "if [ -f \"\$c\" ]; then f=\$c; break; fi; done; " +
-            "if [ -n \"\$f\" ]; then echo \"@@\$id \$(stat -c %s \"\$f\") \$f\"; cat \"\$f\"; echo; fi; done"
+    /** Phase 2: reads the given snapshot files with one root shell, decoding the JPEGs in parallel. */
+    fun loadThumbs(paths: Map<Int, String>): Map<Int, Bitmap> {
+        if (paths.isEmpty()) return emptyMap()
+        val cmd = paths.entries.joinToString("; ") { (id, p) ->
+            "if [ -f '$p' ]; then echo \"@@$id \$(stat -c %s '$p') $p\"; cat '$p'; echo; fi"
+        }
         val bytes = Root.execBytes(cmd) ?: return emptyMap()
 
-        class Raw(val id: Int, val path: String, val start: Int, val size: Int)
+        class Raw(val id: Int, val start: Int, val size: Int)
         val raws = ArrayList<Raw>()
         var i = 0
         val at = '@'.code.toByte()
@@ -246,27 +242,23 @@ object RecentTasks {
                 val id = parts.getOrNull(0)?.toIntOrNull()
                 val size = parts.getOrNull(1)?.toIntOrNull()
                 if (id == null || size == null || nl + 1 + size > bytes.size) break
-                raws.add(Raw(id, parts.getOrElse(2) { "" }, nl + 1, size))
+                raws.add(Raw(id, nl + 1, size))
                 i = nl + 1 + size
             } else i++
         }
 
         val pool = Executors.newFixedThreadPool(4)
-        val opts = BitmapFactory.Options().apply { inSampleSize = 2 }
         val futures = raws.map { r ->
-            pool.submit(Callable<Pair<Int, Snap>> {
-                val user = snapUserRe.find(r.path)?.groupValues?.get(1)?.toIntOrNull()
-                val bmp = BitmapFactory.decodeByteArray(bytes, r.start, r.size, BitmapFactory.Options().apply {
-                    inSampleSize = opts.inSampleSize
-                })
-                Pair(r.id, Snap(user, bmp, r.path))
+            pool.submit(Callable<Pair<Int, Bitmap?>> {
+                val o = BitmapFactory.Options().apply { inSampleSize = 2 }
+                Pair(r.id, BitmapFactory.decodeByteArray(bytes, r.start, r.size, o))
             })
         }
-        val out = HashMap<Int, Snap>()
+        val out = HashMap<Int, Bitmap>()
         for (f in futures) {
             try {
-                val (id, snap) = f.get()
-                out[id] = snap
+                val (id, bmp) = f.get()
+                if (bmp != null) out[id] = bmp
             } catch (e: Exception) {
                 // that one just has no thumbnail
             }

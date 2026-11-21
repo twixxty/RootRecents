@@ -80,6 +80,10 @@ class SettingsActivity : Activity() {
 
         section("Bottom trigger")
         toggle("Enable the bottom swipe trigger", cfg.triggerEnabled) { setTrigger(it) }
+        toggle("Read touches with root (turn on if the swipe doesn't work from the gesture handle, e.g. ColorOS)", cfg.rawTouch) {
+            cfg.rawTouch = it
+            TriggerAccessibilityService.instance?.rebuild()
+        }
         toggle("Show the peek animation while holding", cfg.triggerHold) { cfg.triggerHold = it }
         slider("Sensitivity (height of the touch zone)", Config.TRIG_ZONE) { "$it dp" }
         slider("Swipe length", Config.TRIG_LENGTH) { "$it dp" }

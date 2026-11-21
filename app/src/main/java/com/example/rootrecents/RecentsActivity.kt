@@ -203,6 +203,11 @@ class RecentsActivity : Activity() {
                     maybeShow()
                 }
             }
+            // Screenshots come in a moment later and are swapped into the visible cards.
+            val thumbs = job.awaitThumbs()
+            if (thumbs.isNotEmpty()) runOnUiThread {
+                if (!isDestroyed && !isFinishing) carousel.setThumbs(thumbs)
+            }
         }.start()
     }
 
@@ -330,7 +335,7 @@ class RecentsActivity : Activity() {
         val scale = card.view.scaleX
         var ctl: OpenOverlay.Controller? = null
         ctl = OpenOverlay.play(
-            appCtx, task.thumb, task.icon, rect, carousel.cardRadiusPx() * scale,
+            appCtx, card.bmp ?: task.thumb, task.icon, rect, carousel.cardRadiusPx() * scale,
             screenRadiusPx(), config.openEffect, tint, config.blurRadiusPx * 0.7f,
             config.int(Config.OPEN_SPEED) / 100f, config.int(Config.OPEN_HOLD), config.int(Config.OPEN_FADE)
         ) {

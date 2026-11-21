@@ -40,6 +40,7 @@ class TriggerAccessibilityService : AccessibilityService() {
     private lateinit var wm: WindowManager
     private lateinit var config: Config
     private val handler = Handler(Looper.getMainLooper())
+    private var raw: RawTouch? = null
     private var strip: View? = null
     private var lp: WindowManager.LayoutParams? = null
 
@@ -122,6 +123,13 @@ class TriggerAccessibilityService : AccessibilityService() {
             wm.defaultDisplay.getRealMetrics(m)
             sw = m.widthPixels; sh = m.heightPixels
         }
+        if (config.rawTouch) {
+                        val zonePx = (config.int(Config.TRIG_ZONE) * d).toInt()
+            raw = RawTouch(sw, sh, zonePx) { a, px, py -> onPointer(a, px, py) }
+                .also { it.start() }
+            return
+        }
+
         val params = WindowManager.LayoutParams(
             sw, zone,
             WindowManager.LayoutParams.TYPE_ACCESSIBILITY_OVERLAY,
@@ -149,6 +157,8 @@ class TriggerAccessibilityService : AccessibilityService() {
     }
 
     private fun removeStrip() {
+        raw?.stop()
+        raw = null
         // never leave the recents screen waiting for a release that can no longer come
         if (state == S.PEEK) PeekBridge.release()
         state = S.IDLE
@@ -182,31 +192,37 @@ class TriggerAccessibilityService : AccessibilityService() {
     }
 
     private fun onTouch(e: MotionEvent): Boolean {
-        when (e.actionMasked) {
+        onPointer(e.actionMasked, e.rawX, e.rawY)
+        return true
+    }
+
+    private fun onPointer(action: Int, x: Float, y: Float) {
+        if (raw != null && RecentsActivity.visible && state == S.IDLE) return
+        when (action) {
             MotionEvent.ACTION_DOWN -> {
                 state = S.TRACK
                 gestureActive = true
-                sx = e.rawX; sy = e.rawY
+                sx = x; sy = y
                 // start loading the task list now, so it is ready when the switcher opens
                 if (!RecentsActivity.visible) Prefetch.begin(this)
             }
 
             MotionEvent.ACTION_MOVE -> {
                 when (state) {
-                    S.TRACK -> if (sy - e.rawY >= lengthPx) {
+                    S.TRACK -> if (sy - y >= lengthPx) {
                         state = S.SWIPED
-                        ax = e.rawX; ay = e.rawY
+                        ax = x; ay = y
                         handler.postDelayed(holdRunnable, holdMs)
                     }
 
-                    S.SWIPED -> if (hypot(e.rawX - ax, e.rawY - ay) > slopPx * 2f) {
+                    S.SWIPED -> if (hypot(x - ax, y - ay) > slopPx * 2f) {
                         // still moving: restart the hold timer from here
-                        ax = e.rawX; ay = e.rawY
+                        ax = x; ay = y
                         handler.removeCallbacks(holdRunnable)
                         handler.postDelayed(holdRunnable, holdMs)
                     }
 
-                    S.PEEK -> PeekBridge.move(e.rawX, e.rawY)
+                    S.PEEK -> PeekBridge.move(x, y)
                     else -> {}
                 }
             }
@@ -214,7 +230,7 @@ class TriggerAccessibilityService : AccessibilityService() {
             MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> {
                 handler.removeCallbacks(holdRunnable)
                 // Swiped up and let go without holding: go home.
-                if (state == S.SWIPED && e.actionMasked == MotionEvent.ACTION_UP) {
+                if (state == S.SWIPED && action == MotionEvent.ACTION_UP) {
                     performGlobalAction(GLOBAL_ACTION_HOME)
                 }
                 if (state == S.PEEK) PeekBridge.release()
@@ -228,7 +244,6 @@ class TriggerAccessibilityService : AccessibilityService() {
                 }
             }
         }
-        return true
     }
 
     private fun openRecents(peek: Boolean) {

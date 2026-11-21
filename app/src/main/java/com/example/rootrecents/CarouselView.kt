@@ -1,6 +1,7 @@
 package com.example.rootrecents
 
 import android.content.Context
+import android.graphics.Bitmap
 import android.graphics.Outline
 import android.graphics.drawable.GradientDrawable
 import android.graphics.RectF
@@ -52,6 +53,7 @@ class CarouselView @JvmOverloads constructor(ctx: Context, attrs: AttributeSet? 
         val plabel: TextView? = view.findViewById(R.id.plabel)
         val chev: TextView? = view.findViewById(R.id.chev)
 
+        var bmp: Bitmap? = null
         var slot = 0
         var dragY = 0f
         var lift = 0f
@@ -301,6 +303,19 @@ class CarouselView @JvmOverloads constructor(ctx: Context, attrs: AttributeSet? 
         cards.add(c)
     }
 
+    /** Screenshots arrive after the cards are already showing: swap them in. */
+    fun setThumbs(map: Map<Int, Bitmap>) {
+        for (c in cards) {
+            val t = c.task ?: continue
+            val b = map[t.id] ?: continue
+            val th = c.thumb ?: continue
+            c.bmp = b
+            th.setPadding(0, 0, 0, 0)
+            th.scaleType = ImageView.ScaleType.CENTER_CROP
+            th.setImageBitmap(b)
+        }
+    }
+
     private fun bind(c: Card) {
         val t = c.task ?: return
         val stack = mode == Mode.STACK
@@ -333,6 +348,7 @@ class CarouselView @JvmOverloads constructor(ctx: Context, attrs: AttributeSet? 
             }
         }
         th.clipToOutline = true
+        c.bmp = t.thumb
         if (t.thumb != null) {
             th.scaleType = ImageView.ScaleType.CENTER_CROP
             th.setImageBitmap(t.thumb)
