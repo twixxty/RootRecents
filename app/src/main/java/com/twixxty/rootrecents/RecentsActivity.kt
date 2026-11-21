@@ -106,6 +106,8 @@ class RecentsActivity : Activity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         Root.init(applicationContext)
+        Thread { Actions.primeScales() }.start()
+        Helper.start(applicationContext)
         config = Config.get(this)
         quickMode = intent.getBooleanExtra("quick", false)
         peekMode = intent.getBooleanExtra("peek", false) || quickMode

@@ -5,14 +5,14 @@ plugins {
 
 android {
     namespace = "com.twixxty.rootrecents"
-    compileSdk = 34
+    compileSdk = 36
 
     defaultConfig {
         applicationId = "com.twixxty.rootrecents"
         minSdk = 29
         targetSdk = 34
-        versionCode = 18
-        versionName = "0.18"
+        versionCode = 20
+        versionName = "0.20"
     }
 
     // One fixed signing key for every build (debug and release), so each new APK installs as an
@@ -46,9 +46,11 @@ android {
     }
 }
 
-// The physics, scrolling and layout are all in this project; Shizuku is only the bridge that
-// lets the app run its shell commands on phones without root.
+// The recents physics and layout are all in this project. Material Components draws the Settings
+// screen; Shizuku is the bridge that lets the app run shell commands on phones without root.
 dependencies {
+    // The real Material 3 Expressive components (Settings screen)
+    implementation("com.google.android.material:material:1.14.0")
     implementation("dev.rikka.shizuku:api:13.1.5")
     implementation("dev.rikka.shizuku:provider:13.1.5")
 }

@@ -10,5 +10,5 @@
         <item name="android:windowLayoutInDisplayCutoutMode">shortEdges</item>
     </style>
 
-    <style name="Theme.Settings" parent="android:Theme.DeviceDefault.DayNight" />
+    <style name="Theme.Settings" parent="Theme.Material3Expressive.DynamicColors.DayNight.NoActionBar" />
 </resources>

@@ -92,6 +92,7 @@ class TriggerAccessibilityService : AccessibilityService() {
         super.onServiceConnected()
         instance = this
         Root.init(applicationContext)
+        Thread { Helper.start(applicationContext) }.start()
         wm = getSystemService(WindowManager::class.java)
         RecentsActivity.onVisibility = { updateTouchable() }
         rebuild()
@@ -323,6 +324,7 @@ class TriggerAccessibilityService : AccessibilityService() {
                 // start loading the task list now, so it is ready when the switcher opens
                 if (!RecentsActivity.visible) {
                     prefetchJob = Prefetch.begin(this, capture = true)
+                    Helper.start(applicationContext)
                     checkShade()
                     homeShot = null
                     shotThread = if (config.homeAnim) Thread { homeShot = Root.screenshotFull() }.also { it.start() } else null

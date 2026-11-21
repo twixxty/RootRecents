@@ -13,6 +13,10 @@ object TaskRemover {
     @JvmStatic
     fun main(args: Array<String>) {
         val service = taskService()
+        if (args.isNotEmpty() && args[0] == "daemon") {
+            daemon(service)
+            return
+        }
         if (args.size == 2 && args[0] == "front") {
             println("front:" + moveToFront(service, args[1].toIntOrNull() ?: -1))
             System.exit(0)
@@ -27,6 +31,40 @@ object TaskRemover {
                 false
             }
             println("$id:$ok")
+        }
+        System.exit(0)
+    }
+
+    /**
+     * Stays alive and answers one-line commands on stdin ("front ID", "remove ID ID ..."), so the
+     * slow part (starting a Java process) is paid once, in the background, instead of on every tap.
+     */
+    private fun daemon(service: Any?) {
+        val method = service?.let { findRemoveTask(it) }
+        println("ready")
+        System.out.flush()
+        val reader = java.io.BufferedReader(java.io.InputStreamReader(System.`in`))
+        while (true) {
+            val line = reader.readLine() ?: break
+            val parts = line.trim().split(" ")
+            when (parts[0]) {
+                "front" -> println("front:" + moveToFront(service, parts.getOrNull(1)?.toIntOrNull() ?: -1))
+                "remove" -> {
+                    for (a in parts.drop(1)) {
+                        val id = a.toIntOrNull() ?: continue
+                        val ok = try {
+                            if (service == null || method == null) false
+                            else (method.invoke(service, id) as? Boolean) ?: true
+                        } catch (t: Throwable) {
+                            false
+                        }
+                        println("$id:$ok")
+                    }
+                    println("end")
+                }
+                "ping" -> println("pong")
+            }
+            System.out.flush()
         }
         System.exit(0)
     }

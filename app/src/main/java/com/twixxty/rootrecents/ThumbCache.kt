@@ -18,9 +18,8 @@ object ThumbCache {
 
     fun save(ctx: Context, id: Int, pkg: String, bmp: Bitmap) {
         try {
-            val small = Bitmap.createScaledBitmap(bmp, bmp.width / 2, bmp.height / 2, true)
-            file(ctx, id, pkg).outputStream().use { small.compress(Bitmap.CompressFormat.JPEG, 80, it) }
-            if (small !== bmp) small.recycle()
+            // full resolution, high quality: these are the card pictures
+            file(ctx, id, pkg).outputStream().use { bmp.compress(Bitmap.CompressFormat.JPEG, 92, it) }
         } catch (e: Exception) {
             // no preview then
         }

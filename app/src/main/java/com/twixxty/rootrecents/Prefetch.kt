@@ -77,7 +77,7 @@ object Prefetch {
         var shot: Bitmap? = null
         val shell = Root.isShell
         val shotThread = if (config.showForeground || (shell && capture)) {
-            Thread { shot = Root.screenshot() }.also { it.start() }
+            Thread { shot = if (shell) Root.screenshotFull() else Root.screenshot() }.also { it.start() }
         } else null
 
         val listing = RecentTasks.loadList(ctx, hidden, config.showForeground, config.hiddenAppsSet)
@@ -103,12 +103,17 @@ object Prefetch {
         val wanted = listing.tasks.map { it.id }.toSet()
         val map = HashMap<Int, Bitmap>()
         if (shell) {
-            // no access to the system's snapshots: use the previews saved while apps were in front
+            // no access to the system's snapshots: use the previews saved while apps were in front.
+            // The saved ones go out straight away; the fresh screenshot is stored afterwards.
+            map.putAll(ThumbCache.load(ctx, listing.tasks))
+            if (!config.showForeground) {
+                j.thumbs = HashMap(map)
+                j.thumbLatch.countDown()
+            }
             shotThread?.join()
             val s = shot
             val fg = listing.fgComponent?.substringBefore('/')
             if (s != null && fg != null && listing.fgId != -1 && capture) ThumbCache.save(ctx, listing.fgId, fg, s)
-            map.putAll(ThumbCache.load(ctx, listing.tasks))
             if (s != null && listing.fgId in wanted && config.showForeground) map[listing.fgId] = s
         } else {
             map.putAll(RecentTasks.loadThumbs(listing.paths.filterKeys { it in wanted }))

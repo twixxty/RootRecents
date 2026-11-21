@@ -1,7 +1,13 @@
 package com.twixxty.rootrecents
 
 import android.app.Activity
-import android.app.AlertDialog
+import com.google.android.material.button.MaterialButton
+import com.google.android.material.button.MaterialButtonToggleGroup
+import com.google.android.material.card.MaterialCardView
+import com.google.android.material.color.MaterialColors
+import com.google.android.material.dialog.MaterialAlertDialogBuilder
+import com.google.android.material.materialswitch.MaterialSwitch
+import com.google.android.material.slider.Slider
 import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Intent
@@ -35,9 +41,10 @@ class SettingsActivity : Activity() {
             orientation = LinearLayout.VERTICAL
             setPadding(dp(20), dp(8), dp(20), dp(32))
         }
-        window.decorView.setBackgroundColor(MaterialYou.pageBg(this))
-        window.statusBarColor = MaterialYou.pageBg(this)
-        window.navigationBarColor = MaterialYou.pageBg(this)
+        val pageBg = MaterialColors.getColor(this, com.google.android.material.R.attr.colorSurface, 0)
+        window.decorView.setBackgroundColor(pageBg)
+        window.statusBarColor = pageBg
+        window.navigationBarColor = pageBg
         if (!MaterialYou.isNight(this)) {
             window.decorView.systemUiVisibility = View.SYSTEM_UI_FLAG_LIGHT_STATUS_BAR or
                 View.SYSTEM_UI_FLAG_LIGHT_NAVIGATION_BAR
@@ -151,7 +158,7 @@ class SettingsActivity : Activity() {
         }
         button("Diagnostics (copy report)") { runDiagnostics() }
         button("Reset all settings") {
-            AlertDialog.Builder(this)
+            MaterialAlertDialogBuilder(this)
                 .setTitle("Reset all settings?")
                 .setMessage("Every option goes back to its default.")
                 .setPositiveButton("Reset") { _, _ ->
@@ -227,7 +234,7 @@ class SettingsActivity : Activity() {
         )
         val colors = intArrayOf(0, 0xFF1B2A41.toInt(), 0xFF000000.toInt(), 0xFF2D1B4E.toInt(),
             0xFF16351F.toInt(), 0xFF4A1420.toInt())
-        AlertDialog.Builder(this)
+        MaterialAlertDialogBuilder(this)
             .setTitle("Tint colour")
             .setItems(names) { _, which ->
                 when {
@@ -242,7 +249,7 @@ class SettingsActivity : Activity() {
                             hint = "#RRGGBB"
                             setSingleLine()
                         }
-                        AlertDialog.Builder(this)
+                        MaterialAlertDialogBuilder(this)
                             .setTitle("Hex colour")
                             .setView(input)
                             .setPositiveButton("Set") { _, _ ->
@@ -331,7 +338,7 @@ class SettingsActivity : Activity() {
                     setTextIsSelectable(true)
                     setPadding(dp(16), dp(8), dp(16), dp(8))
                 }
-                AlertDialog.Builder(this)
+                MaterialAlertDialogBuilder(this)
                     .setTitle("Copied to clipboard")
                     .setView(ScrollView(this).apply { addView(tv) })
                     .setPositiveButton("Close", null)
@@ -358,7 +365,7 @@ class SettingsActivity : Activity() {
             runOnUiThread {
                 val hidden = cfg.hiddenAppsSet.toMutableSet()
                 val checked = BooleanArray(apps.size) { apps[it].first in hidden }
-                android.app.AlertDialog.Builder(this)
+                MaterialAlertDialogBuilder(this)
                     .setTitle("Hide from the switcher")
                     .setMultiChoiceItems(apps.map { it.second }.toTypedArray(), checked) { _, i, on ->
                         if (on) hidden.add(apps[i].second.let { apps[i].first }) else hidden.remove(apps[i].first)
@@ -375,6 +382,15 @@ class SettingsActivity : Activity() {
     private var grp: LinearLayout? = null
     private var accessView: TextView? = null
 
+    private fun attr(a: Int) = MaterialColors.getColor(col, a)
+
+    private val aSurfaceContainer get() = attr(com.google.android.material.R.attr.colorSurfaceContainer)
+    private val aOnSurface get() = attr(com.google.android.material.R.attr.colorOnSurface)
+    private val aOnSurfaceVariant get() = attr(com.google.android.material.R.attr.colorOnSurfaceVariant)
+    private val aPrimary get() = attr(com.google.android.material.R.attr.colorPrimary)
+    private val aSecContainer get() = attr(com.google.android.material.R.attr.colorSecondaryContainer)
+    private val aOnSecContainer get() = attr(com.google.android.material.R.attr.colorOnSecondaryContainer)
+
     private fun put(v: View, lp: LinearLayout.LayoutParams = matchWrap()) {
         (grp ?: col).addView(v, lp)
     }
@@ -386,14 +402,14 @@ class SettingsActivity : Activity() {
 
     private fun title(t: String) = TextView(this).apply {
         text = t
-        textSize = 16f
-        setTextColor(MaterialYou.text(this@SettingsActivity))
+        setTextAppearance(com.google.android.material.R.style.TextAppearance_Material3_BodyLarge)
+        setTextColor(aOnSurface)
     }
 
     private fun subtitle(t: String) = TextView(this).apply {
         text = t
-        textSize = 13f
-        setTextColor(MaterialYou.textDim(this@SettingsActivity))
+        setTextAppearance(com.google.android.material.R.style.TextAppearance_Material3_BodyMedium)
+        setTextColor(aOnSurfaceVariant)
     }
 
     /** "Name (explanation)" labels become a title with a smaller line under it. */
@@ -414,40 +430,43 @@ class SettingsActivity : Activity() {
 
     private fun chip(text: String) = TextView(this).apply {
         this.text = text
-        textSize = 13f
-        setTextColor(MaterialYou.onContainer(this@SettingsActivity))
-        background = roundRect(MaterialYou.container(this@SettingsActivity), 14)
-        setPadding(dp(12), dp(5), dp(12), dp(5))
+        setTextAppearance(com.google.android.material.R.style.TextAppearance_Material3_LabelLarge)
+        setTextColor(aOnSecContainer)
+        background = roundRect(aSecContainer, 16)
+        setPadding(dp(12), dp(6), dp(12), dp(6))
     }
 
     private fun header() {
         col.addView(TextView(this).apply {
             text = "Root Recents"
-            textSize = 34f
-            typeface = android.graphics.Typeface.create("sans-serif-medium", android.graphics.Typeface.NORMAL)
-            setTextColor(MaterialYou.text(this@SettingsActivity))
-        }, matchWrap().apply { topMargin = dp(36); bottomMargin = dp(2); leftMargin = dp(8) })
+            setTextAppearance(com.google.android.material.R.style.TextAppearance_Material3_DisplaySmall)
+            setTextColor(aOnSurface)
+        }, matchWrap().apply { topMargin = dp(40); bottomMargin = dp(2); leftMargin = dp(8) })
         col.addView(TextView(this).apply {
-            text = "A recents screen that feels the way you want"
-            textSize = 14f
-            setTextColor(MaterialYou.textDim(this@SettingsActivity))
+            text = "Version ${packageManager.getPackageInfo(packageName, 0).versionName}"
+            setTextAppearance(com.google.android.material.R.style.TextAppearance_Material3_BodyMedium)
+            setTextColor(aOnSurfaceVariant)
         }, matchWrap().apply { leftMargin = dp(8) })
     }
 
     private fun section(name: String) {
         col.addView(TextView(this).apply {
             text = name
-            textSize = 14f
-            typeface = android.graphics.Typeface.create("sans-serif-medium", android.graphics.Typeface.NORMAL)
-            setTextColor(MaterialYou.accent(this@SettingsActivity))
-            letterSpacing = 0.02f
-        }, matchWrap().apply { topMargin = dp(26); bottomMargin = dp(8); leftMargin = dp(12) })
+            setTextAppearance(com.google.android.material.R.style.TextAppearance_Material3_TitleSmall)
+            setTextColor(aPrimary)
+        }, matchWrap().apply { topMargin = dp(28); bottomMargin = dp(8); leftMargin = dp(12) })
+        val card = MaterialCardView(this).apply {
+            radius = dp(28).toFloat()
+            cardElevation = 0f
+            strokeWidth = 0
+            setCardBackgroundColor(aSurfaceContainer)
+        }
         val g = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
-            background = roundRect(MaterialYou.card(this@SettingsActivity), 28)
             setPadding(dp(20), dp(8), dp(20), dp(8))
         }
-        col.addView(g, matchWrap())
+        card.addView(g)
+        col.addView(card, matchWrap())
         grp = g
     }
 
@@ -471,17 +490,8 @@ class SettingsActivity : Activity() {
     }
 
     private fun toggle(label: String, value: Boolean, onChange: (Boolean) -> Unit) {
-        val sw = Switch(this).apply {
+        val sw = MaterialSwitch(this).apply {
             isChecked = value
-            val on = MaterialYou.accent(this@SettingsActivity)
-            val off = MaterialYou.textDim(this@SettingsActivity)
-            val states = arrayOf(intArrayOf(android.R.attr.state_checked), intArrayOf())
-            thumbTintList = android.content.res.ColorStateList(
-                states, intArrayOf(MaterialYou.onAccent(this@SettingsActivity), off)
-            )
-            trackTintList = android.content.res.ColorStateList(
-                states, intArrayOf(on, (off and 0x00FFFFFF) or 0x40000000)
-            )
             setOnCheckedChangeListener { _, checked -> onChange(checked) }
         }
         val r = row(label, sw)
@@ -489,7 +499,7 @@ class SettingsActivity : Activity() {
         r.setOnClickListener { sw.toggle() }
     }
 
-    /** A slider with its current value and a small reset button that restores the default. */
+    /** A Material slider with its value and a small reset that restores the default. */
     private fun slider(
         label: String,
         spec: Config.IntSpec,
@@ -498,24 +508,23 @@ class SettingsActivity : Activity() {
     ) {
         val value = cfg.int(spec)
         val valueView = chip(fmt(value))
-        val bar = SeekBar(this)
-        val accent = MaterialYou.accent(this)
-        bar.progressTintList = android.content.res.ColorStateList.valueOf(accent)
-        bar.thumbTintList = android.content.res.ColorStateList.valueOf(accent)
-        bar.progressBackgroundTintList = android.content.res.ColorStateList.valueOf(
-            (MaterialYou.textDim(this) and 0x00FFFFFF) or 0x33000000
-        )
-        bar.max = spec.hi - spec.lo
-        bar.progress = value - spec.lo
+        val bar = Slider(this).apply {
+            valueFrom = spec.lo.toFloat()
+            valueTo = spec.hi.toFloat()
+            stepSize = 1f
+            this.value = value.toFloat()
+            setLabelFormatter { v -> fmt(v.toInt()) }
+        }
         val reset = TextView(this).apply {
             text = "\u21BA"
             textSize = 20f
-            setTextColor(MaterialYou.textDim(this@SettingsActivity))
+            setTextColor(aOnSurfaceVariant)
             setPadding(dp(12), 0, 0, 0)
             setOnClickListener {
-                bar.progress = spec.def - spec.lo
+                bar.value = spec.def.toFloat()
                 cfg.setInt(spec, spec.def)
                 valueView.text = fmt(spec.def)
+                TriggerAccessibilityService.instance?.rebuild()
             }
         }
         val right = LinearLayout(this).apply {
@@ -524,36 +533,60 @@ class SettingsActivity : Activity() {
             addView(valueView)
             addView(reset)
         }
-        bar.setOnSeekBarChangeListener(object : SeekBar.OnSeekBarChangeListener {
-            override fun onProgressChanged(sb: SeekBar, progress: Int, fromUser: Boolean) {
-                val v = progress + spec.lo
-                valueView.text = fmt(v)
-                if (fromUser) cfg.setInt(spec, v)
-                previewView?.let {
-                    it.radiusPx = v * resources.displayMetrics.density
-                    it.invalidate()
-                }
+        bar.addOnChangeListener { _, v, fromUser ->
+            val iv = v.toInt()
+            valueView.text = fmt(iv)
+            if (fromUser) cfg.setInt(spec, iv)
+            previewView?.let {
+                it.radiusPx = iv * resources.displayMetrics.density
+                it.invalidate()
+            }
+        }
+        bar.addOnSliderTouchListener(object : Slider.OnSliderTouchListener {
+            override fun onStartTrackingTouch(slider: Slider) {
+                if (showPreview) showPreview(slider.value.toInt())
             }
 
-            override fun onStartTrackingTouch(sb: SeekBar) {
-                if (showPreview) showPreview(sb.progress + spec.lo)
-            }
-
-            override fun onStopTrackingTouch(sb: SeekBar) {
+            override fun onStopTrackingTouch(slider: Slider) {
                 TriggerAccessibilityService.instance?.rebuild()
                 if (showPreview) hidePreview()
             }
         })
         val r = row(label, right)
         r.setPadding(0, dp(12), 0, 0)
-        put(bar, matchWrap().apply { bottomMargin = dp(8) })
+        put(bar, matchWrap().apply { bottomMargin = dp(4) })
     }
 
+    /** Short lists become a connected button group; longer ones open a Material dialog. */
     private fun choice(label: String, options: List<String>, current: Int, onPick: (Int) -> Unit) {
-        var selected = current
-        val valueView = chip(options[current.coerceIn(0, options.size - 1)])
+        val cur = current.coerceIn(0, options.size - 1)
+        if (options.size <= 3 && options.all { it.length <= 18 }) {
+            val r = row(label, null)
+            val group = MaterialButtonToggleGroup(this).apply {
+                isSingleSelection = true
+                isSelectionRequired = true
+            }
+            val ids = options.map { View.generateViewId() }
+            options.forEachIndexed { i, o ->
+                group.addView(MaterialButton(
+                    this, null, com.google.android.material.R.attr.materialButtonOutlinedStyle
+                ).apply {
+                    id = ids[i]
+                    text = o
+                    isAllCaps = false
+                })
+            }
+            group.check(ids[cur])
+            group.addOnButtonCheckedListener { _, checkedId, isChecked ->
+                if (isChecked) onPick(ids.indexOf(checkedId))
+            }
+            put(group, matchWrap().apply { bottomMargin = dp(12) })
+            return
+        }
+        var selected = cur
+        val valueView = chip(options[cur])
         row(label, valueView) {
-            AlertDialog.Builder(this@SettingsActivity)
+            MaterialAlertDialogBuilder(this@SettingsActivity)
                 .setTitle(label.substringBefore(" ("))
                 .setSingleChoiceItems(options.toTypedArray(), selected) { dialog, which ->
                     selected = which
@@ -572,7 +605,7 @@ class SettingsActivity : Activity() {
                 setSingleLine(false)
                 setSelection(text.length)
             }
-            AlertDialog.Builder(this@SettingsActivity)
+            MaterialAlertDialogBuilder(this@SettingsActivity)
                 .setTitle(label)
                 .setView(input)
                 .setPositiveButton("Save") { _, _ -> cfg.neverStop = input.text.toString() }
@@ -583,15 +616,11 @@ class SettingsActivity : Activity() {
 
     /** Filled tonal button. */
     private fun button(label: String, onClick: (View) -> Unit) {
-        val b = TextView(this).apply {
+        val b = MaterialButton(this).apply {
             text = label
-            textSize = 15f
-            gravity = android.view.Gravity.CENTER
-            typeface = android.graphics.Typeface.create("sans-serif-medium", android.graphics.Typeface.NORMAL)
-            setTextColor(MaterialYou.onContainer(this@SettingsActivity))
-            background = roundRect(MaterialYou.container(this@SettingsActivity), 24)
-            setPadding(dp(20), dp(14), dp(20), dp(14))
-            isClickable = true
+            isAllCaps = false
+            backgroundTintList = android.content.res.ColorStateList.valueOf(aSecContainer)
+            setTextColor(aOnSecContainer)
             setOnClickListener(onClick)
         }
         put(b, matchWrap().apply { topMargin = dp(8); bottomMargin = dp(4) })

@@ -123,8 +123,29 @@ object Root {
 
     fun available(): Boolean = backend() != 0
 
-    /** Full-resolution screenshot (for overlays that must match the screen exactly). */
+    /**
+     * Full-resolution screenshot. Reads the raw pixels (no slow PNG encode on the phone), which is
+     * several times faster; falls back to PNG if the raw layout is not what we expect.
+     */
     fun screenshotFull(): Bitmap? {
+        val raw = execBytes("screencap")
+        if (raw != null && raw.size > 32) {
+            try {
+                val bb = java.nio.ByteBuffer.wrap(raw).order(java.nio.ByteOrder.LITTLE_ENDIAN)
+                val w = bb.getInt(0)
+                val h = bb.getInt(4)
+                val f = bb.getInt(8)
+                val pix = w.toLong() * h * 4
+                val header = raw.size - pix
+                if (w in 1..10000 && h in 1..10000 && f == 1 && header in 12..16) {
+                    val bmp = Bitmap.createBitmap(w, h, Bitmap.Config.ARGB_8888)
+                    bmp.copyPixelsFromBuffer(java.nio.ByteBuffer.wrap(raw, header.toInt(), pix.toInt()))
+                    return bmp
+                }
+            } catch (e: Throwable) {
+                // use PNG
+            }
+        }
         val bytes = execBytes("screencap -p") ?: return null
         return BitmapFactory.decodeByteArray(bytes, 0, bytes.size)
     }
@@ -134,6 +155,98 @@ object Root {
         val bytes = execBytes("screencap -p") ?: return null
         val opts = BitmapFactory.Options().apply { inSampleSize = 2 }
         return BitmapFactory.decodeByteArray(bytes, 0, bytes.size, opts)
+    }
+}
+
+/** A small long-lived helper process (see TaskRemover.daemon) so task commands are instant. */
+object Helper {
+    private var proc: Process? = null
+    private var writer: java.io.Writer? = null
+    private val lines = java.util.concurrent.LinkedBlockingQueue<String>()
+
+    @Volatile
+    private var ready = false
+    private var starting = false
+
+    private fun alive(): Boolean = try {
+        val p = proc
+        p != null && try { p.exitValue(); false } catch (e: IllegalThreadStateException) { true }
+    } catch (e: Throwable) {
+        false
+    }
+
+    /** Starts the helper in the background if it is not already running. */
+    @Synchronized
+    fun start(ctx: Context) {
+        if (starting || (ready && alive())) return
+        starting = true
+        ready = false
+        val apk = ctx.applicationInfo.sourceDir
+        Thread {
+            try {
+                lines.clear()
+                val p = Root.spawn("CLASSPATH='$apk' exec app_process /system/bin com.twixxty.rootrecents.TaskRemover daemon")
+                proc = p
+                writer = p.outputStream.bufferedWriter()
+                Thread {
+                    try {
+                        val r = p.inputStream.bufferedReader()
+                        while (true) {
+                            val l = r.readLine() ?: break
+                            lines.put(l)
+                        }
+                    } catch (e: Throwable) {
+                        // process gone
+                    }
+                }.also { it.isDaemon = true }.start()
+                val first = lines.poll(15, java.util.concurrent.TimeUnit.SECONDS)
+                ready = first == "ready"
+            } catch (e: Throwable) {
+                ready = false
+            } finally {
+                starting = false
+            }
+        }.also { it.isDaemon = true }.start()
+    }
+
+    /** Sends one command and collects reply lines up to (and including) the one [done] accepts. */
+    @Synchronized
+    private fun call(cmd: String, waitReadyMs: Long, replyMs: Long, done: (String) -> Boolean): List<String>? {
+        val t0 = System.currentTimeMillis()
+        while (!(ready && alive())) {
+            if (!starting && !(ready && alive())) return null // never came up: use the slow way
+            if (System.currentTimeMillis() - t0 > waitReadyMs) return null
+            Thread.sleep(20)
+        }
+        return try {
+            lines.clear()
+            writer?.write(cmd + "\n")
+            writer?.flush()
+            val out = ArrayList<String>()
+            while (true) {
+                val l = lines.poll(replyMs, java.util.concurrent.TimeUnit.MILLISECONDS) ?: return null
+                out.add(l)
+                if (done(l)) break
+            }
+            out
+        } catch (e: Throwable) {
+            ready = false
+            null
+        }
+    }
+
+    /** true / false = the system's answer; null = the helper is not available (use the slow way). */
+    fun front(id: Int): Boolean? {
+        val r = call("front $id", 1200, 3000) { it.startsWith("front:") } ?: return null
+        return r.last() == "front:true"
+    }
+
+    fun remove(ids: List<Int>): Set<Int>? {
+        val r = call("remove ${ids.joinToString(" ")}", 1200, 4000) { it == "end" } ?: return null
+        return r.mapNotNull { l ->
+            val p = l.split(":")
+            if (p.size == 2 && p[1] == "true") p[0].toIntOrNull() else null
+        }.toSet()
     }
 }
 
@@ -151,6 +264,7 @@ object Actions {
      */
     fun removeTasks(ctx: Context, ids: List<Int>): Set<Int> {
         if (ids.isEmpty()) return emptySet()
+        Helper.remove(ids)?.let { return it }
         val apk = ctx.applicationInfo.sourceDir
         val out = Root.exec(
             "CLASSPATH='$apk' app_process /system/bin " +
@@ -190,22 +304,38 @@ object Actions {
         Root.exec("input keyevent 171") // KEYCODE_WINDOW (best effort)
     }
 
+    @Volatile
+    private var scaleA: String? = null
+
+    @Volatile
+    private var scaleT: String? = null
+
+    /** Remembers the user's animation scales ahead of time, so a launch does not have to read them. */
+    fun primeScales() {
+        if (scaleA != null) return
+        val out = Root.exec(
+            "settings get global window_animation_scale; settings get global transition_animation_scale"
+        ).lines().map { it.trim() }
+        fun ok(v: String?) = v?.toFloatOrNull()?.takeIf { it > 0f }?.let { v } ?: "1.0"
+        scaleA = ok(out.getOrNull(0))
+        scaleT = ok(out.getOrNull(1))
+    }
+
     fun launch(ctx: Context, task: RecentTask) {
-        val cmd = "a=\$(settings get global window_animation_scale); " +
-            "t=\$(settings get global transition_animation_scale); " +
-            "[ \"\$a\" = null ] && a=1.0; [ \"\$t\" = null ] && t=1.0; " +
-            "settings put global window_animation_scale 0; " +
-            "settings put global transition_animation_scale 0; " +
-            // First choice: bring the existing task forward, so the app is exactly where it was
-            // (e.g. Settings stays on the page you left it on). Only if that fails, start it fresh.
-            "r=\$(CLASSPATH='${ctx.applicationInfo.sourceDir}' app_process /system/bin " +
-            "com.twixxty.rootrecents.TaskRemover front ${task.id} 2>/dev/null); " +
-            "case \"\$r\" in *front:true*) ;; *) " +
+        primeScales()
+        val a = scaleA ?: "1.0"
+        val t = scaleT ?: "1.0"
+        // The scales go to 0 so no system transition shows; the helper process brings the task
+        // forward instantly (the app is exactly where it was, e.g. Settings stays on its page).
+        // Only if that is not possible is the app started fresh.
+        Root.exec("settings put global window_animation_scale 0; settings put global transition_animation_scale 0")
+        val front = Helper.front(task.id)
+        val cmd = (if (front == true) "" else
             "am start -W --user ${task.userId} -n '${task.component}' " +
-            "-a android.intent.action.MAIN -c android.intent.category.LAUNCHER -f $LAUNCH_FLAGS;; esac; " +
-            "sleep 0.35; " +
-            "settings put global window_animation_scale \$a; " +
-            "settings put global transition_animation_scale \$t"
+                "-a android.intent.action.MAIN -c android.intent.category.LAUNCHER -f $LAUNCH_FLAGS; ") +
+            "sleep 0.25; " +
+            "( sleep 0.5; settings put global window_animation_scale $a; " +
+            "settings put global transition_animation_scale $t ) >/dev/null 2>&1 &"
         val out = Root.execAll(cmd)
         if (out.contains("Error", ignoreCase = true) || out.contains("Exception")) {
             val msg = out.lines().firstOrNull { it.isNotBlank() && !it.startsWith("Starting") } ?: out

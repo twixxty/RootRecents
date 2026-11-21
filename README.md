@@ -101,3 +101,10 @@ you want force-stop (a never-stop list is there too).
 - Apps open via move-task-to-front (same screen as you left it); empty ghost tasks are skipped.
 - Go-home animation is instant with a blurred, tinted backdrop from the first frame.
 - Material 3 expressive settings.
+
+## 0.19
+- Settings uses the real Material Components 1.14 Material 3 Expressive theme and widgets (needs AGP 8.11 / Gradle 8.13 / Kotlin 2.0, already set in the project and workflow).
+- Shizuku: saved previews appear at once at full quality; screenshots read raw (much faster); launching an app spawns far fewer slow processes.
+
+## 0.20
+- Opening an app no longer starts a Java process per tap: a helper process is started in the background and brings tasks forward instantly.
