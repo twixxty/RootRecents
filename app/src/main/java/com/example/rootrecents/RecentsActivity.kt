@@ -203,7 +203,7 @@ class RecentsActivity : Activity() {
             elevation = 6 * d
             setOnClickListener {
                 if (mode == 0) {
-                    carousel.focusedCard()?.let { openTask(it, true) }
+                    carousel.focusedCard()?.let { savePreview(it) }
                 } else {
                     hideBottomButton()
                     carousel.clearAll()
@@ -217,6 +217,36 @@ class RecentsActivity : Activity() {
         ).apply { bottomMargin = (h * 0.1f - 26 * d).toInt().coerceAtLeast((24 * d).toInt()) }
         (findViewById<ViewGroup>(R.id.root)).addView(b, lp)
         bottomBtn = b
+    }
+
+    /** Saves the card's preview image to Pictures/Screenshots and flashes an inner border on it. */
+    private fun savePreview(card: CarouselView.Card) {
+        val task = card.task ?: return
+        val bmp = card.bmp ?: task.thumb ?: return
+        carousel.flashBorder(
+            card, config.int(Config.SHOT_BORDER) * resources.displayMetrics.density,
+            MaterialYou.accent(this)
+        )
+        if (config.haptics) carousel.performHapticFeedback(android.view.HapticFeedbackConstants.CONFIRM)
+        val app = applicationContext
+        Thread {
+            try {
+                val v = android.content.ContentValues().apply {
+                    put(android.provider.MediaStore.Images.Media.DISPLAY_NAME,
+                        "Screenshot_${System.currentTimeMillis()}_${task.pkg}.png")
+                    put(android.provider.MediaStore.Images.Media.MIME_TYPE, "image/png")
+                    if (Build.VERSION.SDK_INT >= 29) {
+                        put(android.provider.MediaStore.Images.Media.RELATIVE_PATH, "Pictures/Screenshots")
+                    }
+                }
+                val uri = app.contentResolver.insert(android.provider.MediaStore.Images.Media.EXTERNAL_CONTENT_URI, v)
+                if (uri != null) {
+                    app.contentResolver.openOutputStream(uri)?.use { bmp.compress(Bitmap.CompressFormat.PNG, 100, it) }
+                }
+            } catch (e: Exception) {
+                // nothing saved
+            }
+        }.start()
     }
 
     private fun hideBottomButton() {
@@ -463,6 +493,7 @@ class RecentsActivity : Activity() {
             content.addView(r)
         }
         row("i", "App info") { openAppInfo(task) }
+        if (config.bottomButton != 0) row("\u26F6", "Screenshot") { savePreview(card) }
         row("\u2715", "Close") { carousel.dismissCard(card, -1500f) }
         row("\u25A0", "Force stop") {
             Thread { Actions.forceStop(listOf(task), emptySet()) }.start()

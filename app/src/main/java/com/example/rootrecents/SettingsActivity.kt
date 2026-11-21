@@ -47,6 +47,7 @@ class SettingsActivity : Activity() {
         slider("Card size", Config.CARD_SIZE) { "$it%" }
         toggle("Show app icon and name", cfg.showLabels) { cfg.showLabels = it }
         choice("Button under the cards", listOf("Screenshot", "Clear all", "Nothing"), cfg.bottomButton) { cfg.bottomButton = it }
+        slider("Screenshot flash: border thickness", Config.SHOT_BORDER) { "$it dp" }
         toggle("\"Clear all\" at the left end of the cards", cfg.clearLeft) { cfg.clearLeft = it }
 
         section("Feel")

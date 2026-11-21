@@ -44,6 +44,9 @@ class Config private constructor(private val sp: SharedPreferences) {
         /** How long (ms) the cover takes to fade away. */
         val OPEN_FADE = IntSpec("openFade", 250, 40, 1000)
 
+        /** Thickness (dp) the inner border grows to when a preview is saved. */
+        val SHOT_BORDER = IntSpec("shotBorder", 8, 2, 30)
+
         // ---- peek ----
         /** How strongly the cards follow the finger while peeking (percent). */
         val PEEK_INTENSITY = IntSpec("peekIntensity", 100, 20, 300)

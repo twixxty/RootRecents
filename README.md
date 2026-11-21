@@ -81,3 +81,6 @@ you want force-stop (a never-stop list is there too).
 
 ## 0.13
 - Hidden apps picker, peek intensity slider, swipe right along the bottom = previous app, peek released pulled down closes.
+
+## 0.14
+- Quick-switch card 80%, Screenshot in card menu, screenshot saves preview with border flash.

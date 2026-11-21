@@ -260,7 +260,7 @@ class CarouselView @JvmOverloads constructor(ctx: Context, attrs: AttributeSet? 
     private fun computeGeometry() {
         val w = sw()
         val h = sh()
-        cw = (w * cardPercent / 100f).toInt()
+        cw = (w * (if (quick) 80f else cardPercent.toFloat()) / 100f).toInt()
         thumbH = (cw.toLong() * h / w).toInt()
         headerH = if (mode == Mode.STACK) dp(40f).toInt() else 0
         cardH = headerH + thumbH
@@ -1242,6 +1242,42 @@ class CarouselView @JvmOverloads constructor(ctx: Context, attrs: AttributeSet? 
         val i = p.roundToInt().coerceIn(0, cards.size - 1)
         val c = cards[i]
         return if (c.isClear) cards.getOrNull(i + 1) else c
+    }
+
+    /** Inner border that grows from nothing to [maxPx] and back: feedback for "preview saved". */
+    fun flashBorder(c: Card, maxPx: Float, color: Int) {
+        val radius = dp(26f)
+        val g = GradientDrawable().apply {
+            shape = GradientDrawable.RECTANGLE
+            cornerRadius = radius
+            setColor(0)
+        }
+        val v = View(context)
+        v.background = g
+        v.outlineProvider = object : ViewOutlineProvider() {
+            override fun getOutline(view: View, outline: Outline) {
+                outline.setRoundRect(0, 0, view.width, view.height, radius)
+            }
+        }
+        v.clipToOutline = true // only the inner half of the stroke shows
+        val host = c.view as? FrameLayout ?: return
+        host.addView(v, FrameLayout.LayoutParams(android.view.ViewGroup.LayoutParams.MATCH_PARENT, thumbH).apply {
+            topMargin = headerH
+        })
+        android.animation.ValueAnimator.ofFloat(0f, 1f).apply {
+            duration = 520
+            addUpdateListener {
+                val t = it.animatedValue as Float
+                val k = kotlin.math.sin(Math.PI * t).toFloat()
+                g.setStroke((2f * maxPx * k).toInt().coerceAtLeast(0), color)
+            }
+            addListener(object : android.animation.AnimatorListenerAdapter() {
+                override fun onAnimationEnd(a: android.animation.Animator) {
+                    host.removeView(v)
+                }
+            })
+            start()
+        }
     }
 
     fun taskCount() = cards.count { !it.isClear }

@@ -252,10 +252,13 @@ object RecentTasks {
             } else i++
         }
 
-        val pool = Executors.newFixedThreadPool(4)
+        val pool = Executors.newFixedThreadPool(Runtime.getRuntime().availableProcessors().coerceIn(2, 4))
         val futures = raws.map { r ->
             pool.submit(Callable<Pair<Int, Bitmap?>> {
-                val o = BitmapFactory.Options().apply { inSampleSize = 2 }
+                val o = BitmapFactory.Options().apply {
+                    inSampleSize = 2
+                    inPreferredConfig = Bitmap.Config.RGB_565 // half the memory
+                }
                 Pair(r.id, BitmapFactory.decodeByteArray(bytes, r.start, r.size, o))
             })
         }
