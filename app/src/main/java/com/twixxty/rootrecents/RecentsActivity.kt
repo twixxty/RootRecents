@@ -13,6 +13,7 @@ import android.view.View
 import android.view.ViewGroup
 import android.view.WindowManager
 import android.widget.FrameLayout
+import android.widget.ImageView
 import android.widget.LinearLayout
 import android.widget.PopupWindow
 import android.widget.TextView
@@ -44,7 +45,7 @@ class RecentsActivity : Activity() {
     private lateinit var config: Config
     private lateinit var carousel: CarouselView
     private lateinit var empty: TextView
-    private var bottomBtn: TextView? = null
+    private var bottomBtn: View? = null
     private var btnK = 1f
     private var fgComp: String? = null
     private var fgUser = 0
@@ -92,6 +93,7 @@ class RecentsActivity : Activity() {
                 val card = carousel.focusedCard()
                 if (card != null && (lastDx >= w * 0.5f || (qVx > 1200f && lastDx >= w * 0.3f))) {
                     carousel.peekCancel()
+                    carousel.quickReveal(card)
                     openTask(card, false)
                 } else {
                     carousel.peekCancel()
@@ -193,29 +195,65 @@ class RecentsActivity : Activity() {
         val mode = config.bottomButton
         if (mode == 2) return
         val d = resources.displayMetrics.density
-        val b = TextView(this).apply {
-            text = if (mode == 0) "⛶  Screenshot" else "✕  Clear all"
-            setTextColor(MaterialYou.onDarkButton(this@RecentsActivity))
-            textSize = 16f
-            gravity = Gravity.CENTER
-            setPadding((24 * d).toInt(), (14 * d).toInt(), (26 * d).toInt(), (14 * d).toInt())
-            background = GradientDrawable().apply {
-                shape = GradientDrawable.RECTANGLE
-                cornerRadius = 40 * d
-                setColor(MaterialYou.darkButton(this@RecentsActivity))
-            }
-            alpha = 0f
-            visibility = View.GONE // shown once there are cards
-            elevation = 6 * d
-            setOnClickListener {
-                if (mode == 0) {
-                    carousel.focusedCard()?.let { savePreview(it) }
-                } else {
-                    hideBottomButton()
-                    carousel.clearAll()
-                }
-            }
+        val wantShot = mode == 0 || mode == 3
+        val wantClear = mode == 1 || mode == 3
+        val pill = config.bottomPill || mode == 3 // both buttons only fit as a compact pill
+        val fg = MaterialYou.onDarkButton(this)
+        val fill = GradientDrawable().apply {
+            shape = GradientDrawable.RECTANGLE
+            cornerRadius = 40 * d
+            setColor(MaterialYou.darkButton(this@RecentsActivity))
         }
+        val onShot = { carousel.focusedCard()?.let { savePreview(it) }; Unit }
+        val onClear = { hideBottomButton(); carousel.clearAll() }
+
+        val b: View
+        if (!pill) {
+            b = TextView(this).apply {
+                text = if (wantShot) "\u26F6  Screenshot" else "\u2715  Clear all"
+                setTextColor(fg)
+                textSize = 16f
+                gravity = Gravity.CENTER
+                setPadding((24 * d).toInt(), (14 * d).toInt(), (26 * d).toInt(), (14 * d).toInt())
+                background = fill
+                setOnClickListener { if (wantShot) onShot() else onClear() }
+            }
+        } else {
+            val box = LinearLayout(this).apply {
+                orientation = LinearLayout.HORIZONTAL
+                gravity = Gravity.CENTER_VERTICAL
+                background = fill
+                setPadding((10 * d).toInt(), (6 * d).toInt(), (10 * d).toInt(), (6 * d).toInt())
+            }
+            fun add(icon: Int, label: String?, desc: String, click: () -> Unit) {
+                val item = LinearLayout(this).apply {
+                    orientation = LinearLayout.HORIZONTAL
+                    gravity = Gravity.CENTER
+                    setPadding((12 * d).toInt(), (10 * d).toInt(), (12 * d).toInt(), (10 * d).toInt())
+                    contentDescription = desc
+                    isClickable = true
+                    setOnClickListener { click() }
+                }
+                item.addView(ImageView(this).apply {
+                    setImageResource(icon)
+                    imageTintList = android.content.res.ColorStateList.valueOf(fg)
+                }, LinearLayout.LayoutParams((24 * d).toInt(), (24 * d).toInt()))
+                if (label != null) item.addView(TextView(this).apply {
+                    text = label
+                    setTextColor(fg)
+                    textSize = 15f
+                    setPadding((8 * d).toInt(), 0, (4 * d).toInt(), 0)
+                })
+                box.addView(item)
+            }
+            val single = !(wantShot && wantClear)
+            if (wantShot) add(R.drawable.ic_screenshot, if (single) "Screenshot" else null, "Screenshot") { onShot() }
+            if (wantClear) add(R.drawable.ic_clear_all, if (single) "Clear all" else null, "Clear all") { onClear() }
+            b = box
+        }
+        b.alpha = 0f
+        b.visibility = View.GONE // shown once there are cards
+        b.elevation = 6 * d
         val h = resources.displayMetrics.heightPixels
         val lp = FrameLayout.LayoutParams(
             ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT,
@@ -303,6 +341,8 @@ class RecentsActivity : Activity() {
         }.start()
         Thread {
             val res = job.await()
+            // Give the screenshots a moment so the cards open with their pictures already in.
+            val early = res != null && !res.noRoot && res.tasks.isNotEmpty() && job.waitThumbs(700)
             runOnUiThread {
                 if (isDestroyed || isFinishing) return@runOnUiThread
                 if (res == null || res.noRoot) {
@@ -313,12 +353,15 @@ class RecentsActivity : Activity() {
                     fgUser = job.fgUser
                     loaded = res.tasks
                     maybeShow()
+                    if (early) carousel.setThumbs(job.thumbs)
                 }
             }
-            // Screenshots come in a moment later and are swapped into the visible cards.
-            val thumbs = job.awaitThumbs()
-            if (thumbs.isNotEmpty()) runOnUiThread {
-                if (!isDestroyed && !isFinishing) carousel.setThumbs(thumbs)
+            if (!early) {
+                // slow ones are swapped into the visible cards when they arrive
+                val thumbs = job.awaitThumbs()
+                if (thumbs.isNotEmpty()) runOnUiThread {
+                    if (!isDestroyed && !isFinishing) carousel.setThumbs(thumbs)
+                }
             }
         }.start()
     }
@@ -535,7 +578,7 @@ class RecentsActivity : Activity() {
         }
         row("i", "App info") { openAppInfo(task) }
         row("\u25EB", "Split screen") { splitBelow(task) }
-        if (config.bottomButton != 0) row("\u26F6", "Screenshot") { savePreview(card) }
+        if (config.bottomButton == 1 || config.bottomButton == 2) row("\u26F6", "Screenshot") { savePreview(card) }
         row("\u2715", "Close") { carousel.dismissCard(card, -1500f) }
         row("\u25A0", "Force stop") {
             Thread { Actions.forceStop(listOf(task), emptySet()) }.start()

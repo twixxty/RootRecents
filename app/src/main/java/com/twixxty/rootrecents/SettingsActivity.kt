@@ -4,6 +4,7 @@ import android.app.Activity
 import com.google.android.material.button.MaterialButton
 import com.google.android.material.button.MaterialButtonToggleGroup
 import com.google.android.material.card.MaterialCardView
+import com.google.android.material.checkbox.MaterialCheckBox
 import com.google.android.material.color.MaterialColors
 import com.google.android.material.dialog.MaterialAlertDialogBuilder
 import com.google.android.material.materialswitch.MaterialSwitch
@@ -86,7 +87,8 @@ class SettingsActivity : Activity() {
         ) { cfg.enterStyle = it }
         slider("Card size", Config.CARD_SIZE) { "$it%" }
         toggle("Show app icon and name", cfg.showLabels) { cfg.showLabels = it }
-        choice("Button under the cards", listOf("Screenshot", "Clear all", "Nothing"), cfg.bottomButton) { cfg.bottomButton = it }
+        choice("Button under the cards", listOf("Screenshot", "Clear all", "Nothing", "Both"), cfg.bottomButton) { cfg.bottomButton = it }
+        toggle("Compact pill with icons (always used when both buttons are shown)", cfg.bottomPill) { cfg.bottomPill = it }
         slider("Screenshot flash: border thickness", Config.SHOT_BORDER) { "$it dp" }
         toggle("\"Clear all\" at the left end of the cards", cfg.clearLeft) { cfg.clearLeft = it }
 
@@ -129,7 +131,10 @@ class SettingsActivity : Activity() {
             cfg.rawTouch = it
             TriggerAccessibilityService.instance?.rebuild()
         }
-        toggle("Animate the app shrinking away when swiping up to the home screen", cfg.homeAnim) { cfg.homeAnim = it }
+        toggle("Blur the screen while going home (the screen blurs, the system's home animation plays, then it clears)", cfg.homeAnim) { cfg.homeAnim = it }
+        slider("Home: time to blur", Config.HOME_BLUR_IN) { "$it ms" }
+        slider("Home: wait at the home screen before clearing", Config.HOME_HOLD) { "$it ms" }
+        slider("Home: time to clear the blur", Config.HOME_BLUR_OUT) { "$it ms" }
         toggle("Show the peek animation while holding", cfg.triggerHold) { cfg.triggerHold = it }
         slider("Peek intensity (how far the cards follow your finger)", Config.PEEK_INTENSITY) { "$it%" }
         toggle("Swipe right along the bottom to show the previous app", cfg.quickSwitch) { cfg.quickSwitch = it }
@@ -357,19 +362,52 @@ class SettingsActivity : Activity() {
             val pm = packageManager
             val intent = android.content.Intent(android.content.Intent.ACTION_MAIN)
                 .addCategory(android.content.Intent.CATEGORY_LAUNCHER)
+            class App(val pkg: String, val label: String, val icon: android.graphics.drawable.Drawable)
             val apps = pm.queryIntentActivities(intent, 0)
-                .map { it.activityInfo.packageName to it.loadLabel(pm).toString() }
-                .distinctBy { it.first }
-                .filter { it.first != packageName }
-                .sortedBy { it.second.lowercase() }
+                .map { App(it.activityInfo.packageName, it.loadLabel(pm).toString(), it.loadIcon(pm)) }
+                .distinctBy { it.pkg }
+                .filter { it.pkg != packageName }
+                .sortedBy { it.label.lowercase() }
             runOnUiThread {
                 val hidden = cfg.hiddenAppsSet.toMutableSet()
-                val checked = BooleanArray(apps.size) { apps[it].first in hidden }
+                val list = android.widget.ListView(this)
+                list.divider = null
+                list.adapter = object : android.widget.BaseAdapter() {
+                    override fun getCount() = apps.size
+                    override fun getItem(i: Int) = apps[i]
+                    override fun getItemId(i: Int) = i.toLong()
+                    override fun getView(i: Int, cv: View?, parent: ViewGroup): View {
+                        val app = apps[i]
+                        val rowView = LinearLayout(this@SettingsActivity).apply {
+                            orientation = LinearLayout.HORIZONTAL
+                            gravity = android.view.Gravity.CENTER_VERTICAL
+                            setPadding(dp(24), dp(8), dp(16), dp(8))
+                        }
+                        rowView.addView(android.widget.ImageView(this@SettingsActivity).apply {
+                            setImageDrawable(app.icon)
+                        }, LinearLayout.LayoutParams(dp(40), dp(40)))
+                        rowView.addView(TextView(this@SettingsActivity).apply {
+                            text = app.label
+                            setTextAppearance(com.google.android.material.R.style.TextAppearance_Material3_BodyLarge)
+                            setTextColor(aOnSurface)
+                            setPadding(dp(16), 0, dp(8), 0)
+                        }, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
+                        rowView.addView(MaterialCheckBox(this@SettingsActivity).apply {
+                            isChecked = app.pkg in hidden
+                            isClickable = false
+                            isFocusable = false
+                        })
+                        return rowView
+                    }
+                }
+                list.setOnItemClickListener { _, _, i, _ ->
+                    val pkg = apps[i].pkg
+                    if (!hidden.add(pkg)) hidden.remove(pkg)
+                    (list.adapter as android.widget.BaseAdapter).notifyDataSetChanged()
+                }
                 MaterialAlertDialogBuilder(this)
                     .setTitle("Hide from the switcher")
-                    .setMultiChoiceItems(apps.map { it.second }.toTypedArray(), checked) { _, i, on ->
-                        if (on) hidden.add(apps[i].second.let { apps[i].first }) else hidden.remove(apps[i].first)
-                    }
+                    .setView(list)
                     .setPositiveButton("Save") { _, _ -> cfg.hiddenApps = hidden.joinToString(",") }
                     .setNegativeButton("Cancel", null)
                     .show()

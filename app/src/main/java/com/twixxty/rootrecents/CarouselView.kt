@@ -1235,6 +1235,21 @@ class CarouselView @JvmOverloads constructor(ctx: Context, attrs: AttributeSet? 
         return RectF(cx - sw / 2f, top, cx + sw / 2f, cy + sh / 2f)
     }
 
+    /**
+     * If a card is still (partly) out of sight - released before it slid in - put it in the middle,
+     * so the opening animation grows from where you can see it.
+     */
+    fun quickReveal(c: Card) {
+        val r = thumbRect(c)
+        val w = sw().toFloat()
+        if (r.centerX() < w * 0.2f || r.centerX() > w * 0.8f) {
+            physics.cancel(peekMotion)
+            c.ex = 0f; c.ey = 0f; c.es = 1f
+            c.exv = 0f; c.eyv = 0f; c.esv = 0f
+            applyPositions()
+        }
+    }
+
     fun cardRadiusPx() = dp(26f)
 
     fun focusedCard(): Card? {

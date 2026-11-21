@@ -43,9 +43,6 @@ class TriggerAccessibilityService : AccessibilityService() {
     private var raw: RawTouch? = null
     private var prefetchJob: Prefetch.Job? = null
 
-    @Volatile
-    private var homeShot: android.graphics.Bitmap? = null
-    private var shotThread: Thread? = null
     private var waitingHome: (() -> Unit)? = null
 
     @Volatile
@@ -79,6 +76,7 @@ class TriggerAccessibilityService : AccessibilityService() {
         } else if (state == S.SWIPED) {
             if (peekOn) {
                 state = S.PEEK
+                buzz(true)
                 PeekBridge.begin(ax, ay)
                 openRecents(true)
             } else {
@@ -250,30 +248,31 @@ class TriggerAccessibilityService : AccessibilityService() {
         Thread { Root.exec("cmd statusbar collapse") }.start()
     }
 
-    /** Covers the app with its own picture, goes home underneath, then plays the shrink. */
-    private fun goHomeAnimated(shot: android.graphics.Bitmap) {
-        val anim = HomeAnim(this, config, shot)
+    /** Blur the screen, let the system's own home animation play under it, then clear the blur. */
+    private fun goHomeAnimated() {
+        val anim = HomeAnim(this, config)
         if (!anim.show()) {
             performGlobalAction(GLOBAL_ACTION_HOME)
             return
         }
-        var fired = false
-        val go = {
-            if (!fired) {
-                fired = true
-                anim.homeReady()
+        anim.blurIn {
+            var fired = false
+            val go = {
+                if (!fired) {
+                    fired = true
+                    handler.postDelayed({ anim.blurOut() }, config.int(Config.HOME_HOLD).toLong())
+                }
             }
+            waitingHome = go
+            homeSentAt = android.os.SystemClock.uptimeMillis()
+            lastPkg = null
+            performGlobalAction(GLOBAL_ACTION_HOME)
+            // no window event arrived (some launchers don't send one): carry on anyway
+            handler.postDelayed({
+                if (waitingHome === go) waitingHome = null
+                go()
+            }, 800)
         }
-        anim.run() // starts at once; the blurred stand-in covers until the home screen is up
-        waitingHome = go
-        homeSentAt = android.os.SystemClock.uptimeMillis()
-        lastPkg = null
-        performGlobalAction(GLOBAL_ACTION_HOME)
-        // no window event arrived (some launchers don't send one): go anyway
-        handler.postDelayed({
-            if (waitingHome === go) waitingHome = null
-            go()
-        }, 450)
     }
 
     /** Swipe-up released: close the shade if it is open, otherwise go home. */
@@ -288,22 +287,17 @@ class TriggerAccessibilityService : AccessibilityService() {
                 collapseShade()
                 return@Thread
             }
-            var shot: android.graphics.Bitmap? = null
+            var animate = false
             if (config.homeAnim) {
-                try {
-                    shotThread?.join(500)
-                } catch (e: InterruptedException) {
-                    // ignore
-                }
                 // already on the home screen? then there is nothing to shrink
                 val home = packageManager.resolveActivity(
                     Intent(Intent.ACTION_MAIN).addCategory(Intent.CATEGORY_HOME), 0
                 )?.activityInfo?.packageName
                 val last = lastPkg
                 val onHome = last != null && last == home
-                if (!onHome) shot = homeShot
+                animate = !onHome
             }
-            handler.post { if (shot != null) goHomeAnimated(shot) else performGlobalAction(GLOBAL_ACTION_HOME) }
+            handler.post { if (animate) goHomeAnimated() else performGlobalAction(GLOBAL_ACTION_HOME) }
         }.start()
     }
 
@@ -326,8 +320,6 @@ class TriggerAccessibilityService : AccessibilityService() {
                     prefetchJob = Prefetch.begin(this, capture = true)
                     Helper.start(applicationContext)
                     checkShade()
-                    homeShot = null
-                    shotThread = if (config.homeAnim) Thread { homeShot = Root.screenshotFull() }.also { it.start() } else null
                 }
             }
 
@@ -343,6 +335,7 @@ class TriggerAccessibilityService : AccessibilityService() {
                         openRecents(true, true)
                     } else if (sy - y >= lengthPx) {
                         state = S.SWIPED
+                        buzz(false)
                         ax = x; ay = y
                         handler.postDelayed(holdRunnable, holdMs)
                     }
@@ -380,6 +373,21 @@ class TriggerAccessibilityService : AccessibilityService() {
 
     /** Asks the system to put the focused app into split screen. */
     fun splitScreen(): Boolean = performGlobalAction(GLOBAL_ACTION_TOGGLE_SPLIT_SCREEN)
+
+    /** A short vibration (when haptics are on): a light tick, or a firmer click. */
+    private fun buzz(firm: Boolean) {
+        if (!config.haptics) return
+        try {
+            val v = getSystemService(android.os.Vibrator::class.java) ?: return
+            v.vibrate(
+                android.os.VibrationEffect.createPredefined(
+                    if (firm) android.os.VibrationEffect.EFFECT_HEAVY_CLICK else android.os.VibrationEffect.EFFECT_TICK
+                )
+            )
+        } catch (e: Throwable) {
+            // no vibration then
+        }
+    }
 
     private fun sideLen() = 48f * resources.displayMetrics.density
 

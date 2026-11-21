@@ -3,39 +3,31 @@ package com.twixxty.rootrecents
 import android.animation.Animator
 import android.animation.AnimatorListenerAdapter
 import android.animation.ValueAnimator
-import android.graphics.Bitmap
-import android.graphics.Outline
+import android.content.Context
 import android.graphics.PixelFormat
 import android.os.Build
 import android.view.Gravity
 import android.view.View
-import android.view.ViewOutlineProvider
 import android.view.WindowManager
-import android.view.animation.PathInterpolator
+import android.view.animation.DecelerateInterpolator
 import android.widget.FrameLayout
-import android.widget.ImageView
-import android.content.Context
 
 /**
- * "Go home" animation. A full-screen overlay shows the foreground app's picture exactly where the
- * app is, so the real jump to the home screen underneath is invisible. Once the home screen has
- * drawn, the picture shrinks towards the upper third of the screen while the blur over the home
- * screen clears.
+ * Go-home effect: the screen blurs, the system's own home animation plays underneath, and the
+ * blur clears once the home screen is up. It is a see-through overlay with blur-behind (plus a
+ * tint), so nothing is drawn by us except the blur and the tint.
  */
-class HomeAnim(private val ctx: Context, private val config: Config, private val shot: Bitmap) {
+class HomeAnim(private val ctx: Context, private val config: Config) {
 
     private val wm = ctx.getSystemService(WindowManager::class.java)
     private var root: FrameLayout? = null
-    private var pic: ImageView? = null
+    private var scrim: View? = null
     private var params: WindowManager.LayoutParams? = null
     private var blurMax = 0
-    private var ran = false
-    private var scrim: View? = null
-    private var stand: ImageView? = null
-    private var radius = 0f
-    private var curRadius = 0f
+    private var tintMax = 0f
+    private var lastBlur = -1
 
-    /** Adds the overlay. False if it could not be shown (then nothing was changed). */
+    /** Adds the (still invisible) overlay. False if it could not be shown. */
     fun show(): Boolean {
         val sw: Int
         val sh: Int
@@ -49,39 +41,11 @@ class HomeAnim(private val ctx: Context, private val config: Config, private val
             sw = m.widthPixels; sh = m.heightPixels
         }
         val r = FrameLayout(ctx)
-        radius = radiusPx()
-        // The tint that sits over the (blurred) home screen first, and fades with the blur.
         val sc = View(ctx).apply {
             setBackgroundColor(config.tintColor(ctx))
-            alpha = config.tintAlpha.coerceAtLeast(0.15f)
+            alpha = 0f
         }
-        // Until the real home screen has drawn, a blurred copy of the app stands in behind the
-        // shrinking picture, so the blur and tint are there from the very first frame.
-        val st = ImageView(ctx).apply {
-            setImageBitmap(shot)
-            scaleType = ImageView.ScaleType.FIT_XY
-            if (Build.VERSION.SDK_INT >= 31 && config.blur > 0) {
-                val rad = (config.blurRadiusPx * 0.6f).coerceAtLeast(8f)
-                setRenderEffect(
-                    android.graphics.RenderEffect.createBlurEffect(rad, rad, android.graphics.Shader.TileMode.CLAMP)
-                )
-            }
-        }
-        r.addView(st, FrameLayout.LayoutParams(sw, sh))
-        stand = st
         r.addView(sc, FrameLayout.LayoutParams(sw, sh))
-        scrim = sc
-        val p = ImageView(ctx).apply {
-            setImageBitmap(shot)
-            scaleType = ImageView.ScaleType.FIT_XY
-            outlineProvider = object : ViewOutlineProvider() {
-                override fun getOutline(view: View, outline: Outline) {
-                    outline.setRoundRect(0, 0, view.width, view.height, if (curRadius > 0f) curRadius else radius)
-                }
-            }
-            clipToOutline = true
-        }
-        r.addView(p, FrameLayout.LayoutParams(sw, sh))
         var flags = WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or
             WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE or
             WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN or
@@ -96,12 +60,13 @@ class HomeAnim(private val ctx: Context, private val config: Config, private val
         if (Build.VERSION.SDK_INT >= 28) {
             lp.layoutInDisplayCutoutMode = WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_ALWAYS
         }
-        blurMax = if (canBlur) config.blurRadiusPx.toInt() else 0
-        if (Build.VERSION.SDK_INT >= 31) lp.blurBehindRadius = blurMax
+        blurMax = if (canBlur) config.blurRadiusPx.toInt().coerceAtLeast(1) else 0
+        tintMax = config.tintAlpha
+        if (Build.VERSION.SDK_INT >= 31) lp.blurBehindRadius = 0
         return try {
             wm.addView(r, lp)
             root = r
-            pic = p
+            scrim = sc
             params = lp
             true
         } catch (e: Exception) {
@@ -109,82 +74,48 @@ class HomeAnim(private val ctx: Context, private val config: Config, private val
         }
     }
 
-    private fun radiusPx(): Float {
-        if (config.radiusAuto && Build.VERSION.SDK_INT >= 31) {
-            try {
-                val insets = wm.currentWindowMetrics.windowInsets
-                val rr = insets.getRoundedCorner(android.view.RoundedCorner.POSITION_TOP_LEFT)?.radius
-                if (rr != null && rr > 0) return rr.toFloat()
-            } catch (e: Exception) {
-                // fall through
+    /** Sets how blurred the screen is: 0 = clear, 1 = fully blurred and tinted. */
+    private fun apply(k: Float) {
+        scrim?.alpha = tintMax * k
+        if (Build.VERSION.SDK_INT >= 31 && blurMax > 0) {
+            val px = (blurMax * k).toInt()
+            if (px != lastBlur) {
+                lastBlur = px
+                val lp = params ?: return
+                lp.blurBehindRadius = px
+                try {
+                    wm.updateViewLayout(root, lp)
+                } catch (e: Exception) {
+                    // gone
+                }
             }
         }
-        return config.int(Config.RADIUS_DP) * ctx.resources.displayMetrics.density
     }
 
-    /** The real home screen has drawn: swap the stand-in for it (blurred by the window itself). */
-    fun homeReady() {
-        val st = stand ?: return
-        stand = null
-        st.animate().alpha(0f).setDuration(160).withEndAction { st.visibility = View.GONE }.start()
-    }
-
-    /** Shrinks the picture towards the upper third of the screen, unblurring what is behind it. */
-    fun run() {
-        if (ran) return
-        ran = true
-        val p = pic ?: return
-        val h = p.height.toFloat().coerceAtLeast(1f)
-        p.pivotX = p.width / 2f
-        p.pivotY = h / 2f
-        var lastBlur = blurMax
-        val tint0 = scrim?.alpha ?: 0f
-        ValueAnimator.ofFloat(0f, 1f).apply {
-            duration = 520
-            // really fast at the start, then easing out slowly
-            interpolator = PathInterpolator(0.05f, 0.85f, 0.15f, 1.0f)
-            addUpdateListener {
-                val t = it.animatedValue as Float
-                // the blur and tint hold through the fast head start, then clear while it slows
-                val u = ((it.animatedFraction - 0.12f) / 0.88f).coerceIn(0f, 1f)
-                val clear = u * u * (3f - 2f * u)
-                scrim?.alpha = tint0 * (1f - clear)
-                // keep the on-screen corner radius while shrinking: no square corners
-                val s0 = (1f - t).coerceAtLeast(0.02f)
-                val rr = minOf(radius / s0, p.width / 2f)
-                if (rr != curRadius) {
-                    curRadius = rr
-                    p.invalidateOutline()
-                }
-                val s = (1f - t).coerceAtLeast(0f)
-                p.scaleX = s
-                p.scaleY = s
-                p.translationY = -h / 6f * t // centre travels from 1/2 to 1/3 of the screen height
-                p.alpha = if (t < 0.8f) 1f else ((1f - t) / 0.2f).coerceIn(0f, 1f)
-                if (Build.VERSION.SDK_INT >= 31 && blurMax > 0) {
-                    val px = (blurMax * (1f - clear)).toInt()
-                    if (px != lastBlur) {
-                        lastBlur = px
-                        val lp = params
-                        if (lp != null) {
-                            lp.blurBehindRadius = px
-                            try {
-                                wm.updateViewLayout(root, lp)
-                            } catch (e: Exception) {
-                                // gone
-                            }
-                        }
-                    }
-                }
-            }
+    private fun animate(from: Float, to: Float, ms: Long, done: () -> Unit) {
+        if (ms <= 0L) {
+            apply(to)
+            done()
+            return
+        }
+        ValueAnimator.ofFloat(from, to).apply {
+            duration = ms
+            interpolator = DecelerateInterpolator(1.4f)
+            addUpdateListener { apply(it.animatedValue as Float) }
             addListener(object : AnimatorListenerAdapter() {
                 override fun onAnimationEnd(a: Animator) {
-                    remove()
+                    done()
                 }
             })
             start()
         }
     }
+
+    /** Blur the screen, then [onDone] (this is when the home screen is started). */
+    fun blurIn(onDone: () -> Unit) = animate(0f, 1f, config.int(Config.HOME_BLUR_IN).toLong(), onDone)
+
+    /** Clear the blur and take the overlay away. */
+    fun blurOut() = animate(1f, 0f, config.int(Config.HOME_BLUR_OUT).toLong()) { remove() }
 
     fun remove() {
         val r = root ?: return

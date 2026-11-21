@@ -47,6 +47,14 @@ class Config private constructor(private val sp: SharedPreferences) {
         /** Thickness (dp) the inner border grows to when a preview is saved. */
         val SHOT_BORDER = IntSpec("shotBorder2", 3, 1, 12)
 
+        // ---- going home ----
+        /** How long (ms) the screen takes to blur before the home animation plays. */
+        val HOME_BLUR_IN = IntSpec("homeBlurIn", 160, 0, 600)
+        /** Extra wait (ms) once the home screen is up, before the blur starts to clear. */
+        val HOME_HOLD = IntSpec("homeHold", 120, 0, 800)
+        /** How long (ms) the blur takes to clear on the home screen. */
+        val HOME_BLUR_OUT = IntSpec("homeBlurOut", 320, 60, 1200)
+
         // ---- peek ----
         /** How strongly the cards follow the finger while peeking (percent). */
         val PEEK_INTENSITY = IntSpec("peekIntensity", 100, 20, 300)
@@ -91,10 +99,15 @@ class Config private constructor(private val sp: SharedPreferences) {
         get() = sp.getBoolean("showLabels", true)
         set(v) = sp.edit().putBoolean("showLabels", v).apply()
 
-    /** 0 = Screenshot button, 1 = Clear all button, 2 = nothing, below the cards. */
+    /** 0 = Screenshot button, 1 = Clear all button, 2 = nothing, 3 = both, below the cards. */
     var bottomButton: Int
         get() = sp.getInt("bottomButton", 0)
         set(v) = sp.edit().putInt("bottomButton", v).apply()
+
+    /** Show the bottom button(s) as a compact pill with icons (forced on when both are shown). */
+    var bottomPill: Boolean
+        get() = sp.getBoolean("bottomPill", false)
+        set(v) = sp.edit().putBoolean("bottomPill", v).apply()
 
     /** The "Clear all" card at the left end of the row. */
     var clearLeft: Boolean

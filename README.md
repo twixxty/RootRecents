@@ -108,3 +108,7 @@ you want force-stop (a never-stop list is there too).
 
 ## 0.20
 - Opening an app no longer starts a Java process per tap: a helper process is started in the background and brings tasks forward instantly.
+
+## 0.22
+- Go-home: screen blurs, native home animation plays, blur clears (timings adjustable).
+- Cards open with their pictures; bottom buttons: both + icon pill; haptics on swipe/peek; quick-switch open fix; hide-apps list has checkboxes.

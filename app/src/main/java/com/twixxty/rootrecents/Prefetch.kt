@@ -35,6 +35,9 @@ object Prefetch {
             return result
         }
 
+        /** True if the screenshots arrived within [ms]. */
+        fun waitThumbs(ms: Long): Boolean = thumbLatch.await(ms, TimeUnit.MILLISECONDS)
+
         fun awaitThumbs(): Map<Int, Bitmap> {
             thumbLatch.await(20, TimeUnit.SECONDS)
             return thumbs
