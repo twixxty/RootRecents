@@ -45,6 +45,9 @@ class RecentsActivity : Activity() {
     private lateinit var carousel: CarouselView
     private lateinit var empty: TextView
     private var bottomBtn: TextView? = null
+    private var btnK = 1f
+    private var fgComp: String? = null
+    private var fgUser = 0
     private var emptyM: Motion? = null
 
     private val dim = ColorDrawable(0x00000000)
@@ -94,7 +97,7 @@ class RecentsActivity : Activity() {
                     carousel.peekCancel()
                     closeAnimated()
                 }
-            } else if (carousel.peekRelease()) bottomBtn?.visibility = View.VISIBLE
+            } else if (carousel.peekRelease()) showBottomButton()
         }
     }
 
@@ -249,19 +252,37 @@ class RecentsActivity : Activity() {
         }.start()
     }
 
-    /** Puts the foreground app on top and [task] below it, using the system's split screen. */
+    /** [task] on top, the app that was in front below it, using the system's split screen. */
     private fun splitBelow(task: RecentTask) {
         if (launching || closing) return
         closing = true
         val appCtx = applicationContext
+        val fc = fgComp
+        val fu = fgUser
         carousel.postDelayed({ finishNoAnim() }, 0)
         Thread {
-            Thread.sleep(350) // let the foreground app take focus back
+            // Bring the chosen app to the front, split it to the top half, then put the old
+            // foreground app in the other half.
+            Actions.launch(appCtx, task)
+            Thread.sleep(450)
             val ok = TriggerAccessibilityService.instance?.splitScreen() ?: false
             if (!ok) Actions.splitKey()
             Thread.sleep(900)
-            Actions.launchAdjacent(task)
+            if (fc != null) Actions.launchAdjacent(fu, fc)
         }.start()
+    }
+
+    /** The bottom button fades in (never pops). */
+    private fun showBottomButton() {
+        val b = bottomBtn ?: return
+        if (b.visibility == View.VISIBLE) return
+        btnK = 0f
+        b.alpha = 0f
+        b.visibility = View.VISIBLE
+        physics.start(SpringMotion(0f, 0f, 1f, 9f, 1f, 0.004f, 0.03f) {
+            btnK = it
+            b.alpha = backdrop.coerceIn(0f, 1f) * btnK
+        })
     }
 
     private fun hideBottomButton() {
@@ -285,6 +306,8 @@ class RecentsActivity : Activity() {
                     empty.setText(if (res?.noRoot == true) R.string.no_root else R.string.no_recents)
                     showEmpty()
                 } else {
+                    fgComp = job.fgComponent
+                    fgUser = job.fgUser
                     loaded = res.tasks
                     maybeShow()
                 }
@@ -313,7 +336,7 @@ class RecentsActivity : Activity() {
         }
         if (closing) return
         empty.visibility = View.GONE
-        bottomBtn?.visibility = if (peekMode) View.GONE else View.VISIBLE // not while peeking / swiping
+        if (peekMode) bottomBtn?.visibility = View.GONE else showBottomButton() // not while peeking / swiping
         carousel.setTasks(tasks)
         carousel.post {
             if (peekMode) {
@@ -357,7 +380,7 @@ class RecentsActivity : Activity() {
         // Without blur, darken more so the cards still stand out.
         val a = min(0.85f, config.tintAlpha * (if (blurActive) 1f else 1.5f))
         dim.color = (tint and 0x00FFFFFF) or ((a * c * 255f).toInt() shl 24)
-        bottomBtn?.alpha = c
+        bottomBtn?.alpha = c * btnK
         if (blurActive && Build.VERSION.SDK_INT >= 31) {
             val px = (config.blurRadiusPx * c).toInt()
             if (px != lastBlurPx) {

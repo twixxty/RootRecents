@@ -100,9 +100,9 @@ object Actions {
      * when the app has started (-W).
      */
     /** Starts [task] in the other half of split screen (NEW_TASK | LAUNCH_ADJACENT). */
-    fun launchAdjacent(task: RecentTask) {
+    fun launchAdjacent(user: Int, component: String) {
         Root.exec(
-            "am start --user ${task.userId} -n '${task.component}' " +
+            "am start --user $user -n '$component' " +
                 "-a android.intent.action.MAIN -c android.intent.category.LAUNCHER -f 0x10001000"
         )
     }

@@ -90,3 +90,6 @@ you want force-stop (a never-stop list is there too).
 
 ## 0.16
 - Go-home animation: app picture shrinks to the upper third while the home screen unblurs.
+
+## 0.17
+- Faster, snappier go-home animation with tint+blur; thinner screenshot border; split puts chosen app on top; bottom button fades in.

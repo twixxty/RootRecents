@@ -47,6 +47,9 @@ class TriggerAccessibilityService : AccessibilityService() {
     private var homeShot: android.graphics.Bitmap? = null
     private var shotThread: Thread? = null
     private var waitingHome: (() -> Unit)? = null
+
+    @Volatile
+    private var lastPkg: String? = null
     private var homeSentAt = 0L
     private var forwarding = false
 
@@ -94,12 +97,16 @@ class TriggerAccessibilityService : AccessibilityService() {
     }
 
     override fun onAccessibilityEvent(event: AccessibilityEvent?) {
+        if (event?.eventType == AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED) {
+            val pkg = event.packageName?.toString()
+            if (pkg != null && pkg != packageName && pkg != "com.android.systemui") lastPkg = pkg
+        }
         val go = waitingHome ?: return
         if (event?.eventType != AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED) return
         if (event.packageName == packageName) return
         // the home screen (or something new) has a window up: give it a moment to draw, then go
         waitingHome = null
-        val wait = (120L - (android.os.SystemClock.uptimeMillis() - homeSentAt)).coerceAtLeast(120L)
+        val wait = (70L - (android.os.SystemClock.uptimeMillis() - homeSentAt)).coerceAtLeast(40L)
         handler.postDelayed({ go() }, wait)
     }
 
@@ -257,19 +264,20 @@ class TriggerAccessibilityService : AccessibilityService() {
         }
         waitingHome = go
         homeSentAt = android.os.SystemClock.uptimeMillis()
+        lastPkg = null
         performGlobalAction(GLOBAL_ACTION_HOME)
         // no window event arrived (some launchers don't send one): go anyway
         handler.postDelayed({
             if (waitingHome === go) waitingHome = null
             go()
-        }, 650)
+        }, 380)
     }
 
     /** Swipe-up released: close the shade if it is open, otherwise go home. */
     private fun homeOrCollapse() {
         Thread {
             try {
-                shadeCheck?.join(700)
+                shadeCheck?.join(400)
             } catch (e: InterruptedException) {
                 // ignore
             }
@@ -279,14 +287,18 @@ class TriggerAccessibilityService : AccessibilityService() {
             }
             var shot: android.graphics.Bitmap? = null
             if (config.homeAnim) {
-                val job = prefetchJob
                 try {
-                    job?.listLatch?.await(600, java.util.concurrent.TimeUnit.MILLISECONDS)
-                    shotThread?.join(700)
+                    shotThread?.join(500)
                 } catch (e: InterruptedException) {
                     // ignore
                 }
-                if (job != null && job.fgId != -1) shot = homeShot
+                // already on the home screen? then there is nothing to shrink
+                val home = packageManager.resolveActivity(
+                    Intent(Intent.ACTION_MAIN).addCategory(Intent.CATEGORY_HOME), 0
+                )?.activityInfo?.packageName
+                val last = lastPkg
+                val onHome = last != null && last == home
+                if (!onHome) shot = homeShot
             }
             handler.post { if (shot != null) goHomeAnimated(shot) else performGlobalAction(GLOBAL_ACTION_HOME) }
         }.start()

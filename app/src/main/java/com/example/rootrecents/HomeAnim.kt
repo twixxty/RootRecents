@@ -30,6 +30,9 @@ class HomeAnim(private val ctx: Context, private val config: Config, private val
     private var params: WindowManager.LayoutParams? = null
     private var blurMax = 0
     private var ran = false
+    private var scrim: View? = null
+    private var radius = 0f
+    private var curRadius = 0f
 
     /** Adds the overlay. False if it could not be shown (then nothing was changed). */
     fun show(): Boolean {
@@ -45,13 +48,20 @@ class HomeAnim(private val ctx: Context, private val config: Config, private val
             sw = m.widthPixels; sh = m.heightPixels
         }
         val r = FrameLayout(ctx)
-        val radius = radiusPx()
+        radius = radiusPx()
+        // The tint that sits over the (blurred) home screen first, and fades with the blur.
+        val sc = View(ctx).apply {
+            setBackgroundColor(config.tintColor(ctx))
+            alpha = config.tintAlpha.coerceAtLeast(0.15f)
+        }
+        r.addView(sc, FrameLayout.LayoutParams(sw, sh))
+        scrim = sc
         val p = ImageView(ctx).apply {
             setImageBitmap(shot)
             scaleType = ImageView.ScaleType.FIT_XY
             outlineProvider = object : ViewOutlineProvider() {
                 override fun getOutline(view: View, outline: Outline) {
-                    outline.setRoundRect(0, 0, view.width, view.height, radius)
+                    outline.setRoundRect(0, 0, view.width, view.height, if (curRadius > 0f) curRadius else radius)
                 }
             }
             clipToOutline = true
@@ -106,18 +116,31 @@ class HomeAnim(private val ctx: Context, private val config: Config, private val
         p.pivotX = p.width / 2f
         p.pivotY = h / 2f
         var lastBlur = blurMax
+        val tint0 = scrim?.alpha ?: 0f
         ValueAnimator.ofFloat(0f, 1f).apply {
-            duration = 460
-            interpolator = PathInterpolator(0.22f, 0.0f, 0.0f, 1.0f)
+            duration = 520
+            // really fast at the start, then easing out slowly
+            interpolator = PathInterpolator(0.05f, 0.85f, 0.15f, 1.0f)
             addUpdateListener {
                 val t = it.animatedValue as Float
+                // the blur and tint hold through the fast head start, then clear while it slows
+                val u = ((it.animatedFraction - 0.12f) / 0.88f).coerceIn(0f, 1f)
+                val clear = u * u * (3f - 2f * u)
+                scrim?.alpha = tint0 * (1f - clear)
+                // keep the on-screen corner radius while shrinking: no square corners
+                val s0 = (1f - t).coerceAtLeast(0.02f)
+                val rr = minOf(radius / s0, p.width / 2f)
+                if (rr != curRadius) {
+                    curRadius = rr
+                    p.invalidateOutline()
+                }
                 val s = (1f - t).coerceAtLeast(0f)
                 p.scaleX = s
                 p.scaleY = s
                 p.translationY = -h / 6f * t // centre travels from 1/2 to 1/3 of the screen height
                 p.alpha = if (t < 0.8f) 1f else ((1f - t) / 0.2f).coerceIn(0f, 1f)
                 if (Build.VERSION.SDK_INT >= 31 && blurMax > 0) {
-                    val px = (blurMax * (1f - t)).toInt()
+                    val px = (blurMax * (1f - clear)).toInt()
                     if (px != lastBlur) {
                         lastBlur = px
                         val lp = params

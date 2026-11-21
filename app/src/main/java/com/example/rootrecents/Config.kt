@@ -45,7 +45,7 @@ class Config private constructor(private val sp: SharedPreferences) {
         val OPEN_FADE = IntSpec("openFade", 250, 40, 1000)
 
         /** Thickness (dp) the inner border grows to when a preview is saved. */
-        val SHOT_BORDER = IntSpec("shotBorder", 8, 2, 30)
+        val SHOT_BORDER = IntSpec("shotBorder2", 3, 1, 12)
 
         // ---- peek ----
         /** How strongly the cards follow the finger while peeking (percent). */

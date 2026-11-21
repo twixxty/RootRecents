@@ -68,7 +68,10 @@ object RecentTasks {
         val allIds: Set<Int>,
         val paths: Map<Int, String>,
         val fgId: Int,
-        val noRoot: Boolean = false
+        val noRoot: Boolean = false,
+        /** The app in front: user id and "package/class" (null if none). */
+        val fgUser: Int = 0,
+        val fgComponent: String? = null
     )
 
     /** Phase 1, fast: one root call for the task list and the snapshot file names. No image decoding. */
@@ -119,7 +122,15 @@ object RecentTasks {
                 )
             )
         }
-        return Listing(tasks, parsed.map { it.id }.toSet(), paths, fgId)
+        var fgComp: String? = null
+        var fgUser = 0
+        if (fgId != -1 && first != null) {
+            val cls = if (first.cls.startsWith(".")) first.pkg + first.cls else first.cls
+            fgComp = "${first.pkg}/$cls"
+            fgUser = paths[first.id]?.let { snapUserRe.find(it)?.groupValues?.get(1)?.toIntOrNull() }
+                ?: first.bestGuessUser
+        }
+        return Listing(tasks, parsed.map { it.id }.toSet(), paths, fgId, false, fgUser, fgComp)
     }
 
     /** Human-readable dump of what was parsed, for the Diagnostics button in settings. */

@@ -22,6 +22,10 @@ object Prefetch {
         @Volatile
         var fgId = -1
         @Volatile
+        var fgComponent: String? = null
+        @Volatile
+        var fgUser = 0
+        @Volatile
         var thumbs: Map<Int, Bitmap> = emptyMap()
         val listLatch = CountDownLatch(1)
         val thumbLatch = CountDownLatch(1)
@@ -89,6 +93,8 @@ object Prefetch {
         // Oldest on the left, most recent on the right, like stock.
         val tasks = listing.tasks.reversed()
         j.fgId = listing.fgId
+        j.fgComponent = listing.fgComponent
+        j.fgUser = listing.fgUser
         j.result = Loaded(tasks, false)
         j.listLatch.countDown()
 
