@@ -66,4 +66,13 @@ object MaterialYou {
             if (Build.VERSION.SDK_INT >= 31) c(ctx, android.R.color.system_accent1_0, 0xFFFFFFFF.toInt())
             else 0xFFFFFFFF.toInt()
         }
+
+    /** Dark tonal fill for the floating bottom button: dark in both themes, tinted by the wallpaper. */
+    fun darkButton(ctx: Context) =
+        if (Build.VERSION.SDK_INT >= 31) c(ctx, android.R.color.system_accent2_800, 0xFF332D41.toInt())
+        else 0xFF332D41.toInt()
+
+    fun onDarkButton(ctx: Context) =
+        if (Build.VERSION.SDK_INT >= 31) c(ctx, android.R.color.system_accent1_100, 0xFFE8DEF8.toInt())
+        else 0xFFE8DEF8.toInt()
 }

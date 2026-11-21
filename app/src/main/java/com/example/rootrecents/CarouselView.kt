@@ -125,6 +125,8 @@ class CarouselView @JvmOverloads constructor(ctx: Context, attrs: AttributeSet? 
     var onEmptyTap: (() -> Unit)? = null
     var onDismissed: ((List<RecentTask>) -> Unit)? = null
     var onAllGone: (() -> Unit)? = null
+    /** The last real card has just started leaving (hide buttons now, not when it is gone). */
+    var onEmptying: (() -> Unit)? = null
     var onPullClose: (() -> Unit)? = null
 
     private val dm = resources.displayMetrics
@@ -900,6 +902,30 @@ class CarouselView @JvmOverloads constructor(ctx: Context, attrs: AttributeSet? 
         physics.start(pullFollow)
     }
 
+    private var rawY = 0f
+    private var rawT = 0L
+    private var rawVy = 0f
+
+    /** Pull-up fed from root touch events (when the system's gesture handle eats the real ones). */
+    fun rawPull(action: Int, y: Float) {
+        if (busy) return
+        val now = android.os.SystemClock.uptimeMillis()
+        when (action) {
+            MotionEvent.ACTION_DOWN -> {
+                physics.cancel(pullM)
+                pullRaw = 0f
+                rawY = y; rawT = now; rawVy = 0f
+            }
+            MotionEvent.ACTION_MOVE -> {
+                val dt = (now - rawT).coerceAtLeast(1L) / 1000f
+                rawVy = 0.6f * rawVy + 0.4f * ((y - rawY) / dt)
+                pullBy(y - rawY)
+                rawY = y; rawT = now
+            }
+            else -> releasePull(if (action == MotionEvent.ACTION_CANCEL) 0f else rawVy)
+        }
+    }
+
     private fun releasePull(vy: Float) {
         val h = sh()
         physics.cancel(pullFollow)
@@ -955,6 +981,11 @@ class CarouselView @JvmOverloads constructor(ctx: Context, attrs: AttributeSet? 
             leavingCards.add(v)
             v.leaving = true
             startLeave(v, vys.getOrElse(i) { -1500f }, i * staggerMs)
+        }
+        if (cards.none { !it.isClear }) {
+            // Nothing real left: the "Clear all" card must not slide into the middle.
+            cards.filter { it.isClear }.forEach { it.ea = 0f; it.view.visibility = View.GONE }
+            onEmptying?.invoke()
         }
         cards.forEachIndexed { i, c -> c.slot = i }
         p = (p - shift).coerceIn(0f, maxP())

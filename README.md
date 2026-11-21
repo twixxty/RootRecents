@@ -75,3 +75,6 @@ you want force-stop (a never-stop list is there too).
 ## 0.11
 - Cards appear as soon as the task list is read; screenshots fill in a moment later.
 - Bottom trigger: new "Read touches with root" setting for ColorOS gesture handle.
+
+## 0.12
+- Swipe-up pull-to-close works with root touch mode; shade/quick settings close on swipe up; clear-all/empty-state fixes; dark Material You bottom button.

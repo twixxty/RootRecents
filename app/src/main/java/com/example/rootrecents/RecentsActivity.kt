@@ -33,6 +33,10 @@ class RecentsActivity : Activity() {
         var visible = false
             private set
 
+        /** Root-read touches that began on the gesture handle while the switcher is open. */
+        @JvmStatic
+        var rawPull: ((Int, Float, Float) -> Unit)? = null
+
         @JvmStatic
         var onVisibility: ((Boolean) -> Unit)? = null
     }
@@ -41,6 +45,7 @@ class RecentsActivity : Activity() {
     private lateinit var carousel: CarouselView
     private lateinit var empty: TextView
     private var bottomBtn: TextView? = null
+    private var emptyM: Motion? = null
 
     private val dim = ColorDrawable(0x00000000)
     private val physics = Physics()
@@ -98,10 +103,11 @@ class RecentsActivity : Activity() {
         carousel.onCardClick = { card -> openTask(card, false) }
         carousel.onPillClick = { card -> showMenu(card) }
         carousel.onCardLongPress = { task -> openAppInfo(task) }
-        carousel.onClearClick = { carousel.clearAll() }
+        carousel.onClearClick = { hideBottomButton(); carousel.clearAll() }
         carousel.onEmptyTap = { closeAnimated() }
         carousel.onDismissed = { tasks -> closeSystemTasks(tasks) }
         carousel.onAllGone = { closeAnimated() }
+        carousel.onEmptying = { hideBottomButton() }
         carousel.onPullClose = { closeAnimated() }
         empty.setOnClickListener { closeAnimated() }
 
@@ -115,6 +121,7 @@ class RecentsActivity : Activity() {
     override fun onStart() {
         super.onStart()
         visible = true
+        rawPull = { a, _, y -> carousel.rawPull(a, y) }
         onVisibility?.invoke(true)
     }
 
@@ -134,6 +141,7 @@ class RecentsActivity : Activity() {
     override fun onStop() {
         super.onStop()
         visible = false
+        rawPull = null
         onVisibility?.invoke(false)
         // Behave like a system overlay: leaving it (home, another app) dismisses it.
         if (!isFinishing) finishNoAnim()
@@ -155,20 +163,23 @@ class RecentsActivity : Activity() {
         val d = resources.displayMetrics.density
         val b = TextView(this).apply {
             text = if (mode == 0) "⛶  Screenshot" else "✕  Clear all"
-            setTextColor(0xFFF2F2F5.toInt())
+            setTextColor(MaterialYou.onDarkButton(this@RecentsActivity))
             textSize = 16f
             gravity = Gravity.CENTER
             setPadding((24 * d).toInt(), (14 * d).toInt(), (26 * d).toInt(), (14 * d).toInt())
             background = GradientDrawable().apply {
                 shape = GradientDrawable.RECTANGLE
                 cornerRadius = 40 * d
-                setColor(0x4DFFFFFF)
+                setColor(MaterialYou.darkButton(this@RecentsActivity))
             }
             alpha = 0f
+            visibility = View.GONE // shown once there are cards
+            elevation = 6 * d
             setOnClickListener {
                 if (mode == 0) {
                     carousel.focusedCard()?.let { openTask(it, true) }
                 } else {
+                    hideBottomButton()
                     carousel.clearAll()
                 }
             }
@@ -180,6 +191,10 @@ class RecentsActivity : Activity() {
         ).apply { bottomMargin = (h * 0.1f - 26 * d).toInt().coerceAtLeast((24 * d).toInt()) }
         (findViewById<ViewGroup>(R.id.root)).addView(b, lp)
         bottomBtn = b
+    }
+
+    private fun hideBottomButton() {
+        bottomBtn?.visibility = View.GONE
     }
 
     // ---------------------------------------------------------------- loading
@@ -223,7 +238,9 @@ class RecentsActivity : Activity() {
             showEmpty()
             return
         }
+        if (closing) return
         empty.visibility = View.GONE
+        bottomBtn?.visibility = View.VISIBLE
         carousel.setTasks(tasks)
         carousel.post {
             if (peekMode) {
@@ -249,10 +266,12 @@ class RecentsActivity : Activity() {
     }
 
     private fun showEmpty() {
+        hideBottomButton()
         carousel.visibility = View.GONE
+        if (closing) return // released before the (empty) list arrived: already on its way out
         empty.visibility = View.VISIBLE
         empty.alpha = 0f
-        physics.start(SpringMotion(0f, 0f, 1f, 12f, 1f, 0.002f, 0.02f) { empty.alpha = it })
+        emptyM = physics.start(SpringMotion(0f, 0f, 1f, 12f, 1f, 0.002f, 0.02f) { empty.alpha = it })
         animateBackdrop(1f)
         if (peekMode) PeekBridge.attach(peekListener)
     }
@@ -294,7 +313,10 @@ class RecentsActivity : Activity() {
         var pending = 2
         val one = { if (--pending == 0) finishNoAnim() }
         if (carousel.visibility == View.VISIBLE && carousel.taskCount() > 0) carousel.playExit { one() } else one()
-        empty.animate().alpha(0f).setDuration(140).start()
+        physics.cancel(emptyM)
+        if (empty.visibility == View.VISIBLE) {
+            physics.start(SpringMotion(empty.alpha, 0f, 0f, 16f, 1f, 0.01f, 0.05f) { empty.alpha = it })
+        }
         animateBackdrop(0f) { one() }
         carousel.postDelayed({ finishNoAnim() }, 1400) // safety net
     }

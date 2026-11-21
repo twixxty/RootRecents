@@ -41,6 +41,11 @@ class TriggerAccessibilityService : AccessibilityService() {
     private lateinit var config: Config
     private val handler = Handler(Looper.getMainLooper())
     private var raw: RawTouch? = null
+    private var forwarding = false
+
+    @Volatile
+    private var shadeOpen = false
+    private var shadeCheck: Thread? = null
     private var strip: View? = null
     private var lp: WindowManager.LayoutParams? = null
 
@@ -57,7 +62,11 @@ class TriggerAccessibilityService : AccessibilityService() {
     private var slopPx = 0f
 
     private val holdRunnable = Runnable {
-        if (state == S.SWIPED) {
+        if (state == S.SWIPED && shadeOpen) {
+            // the panel is open: a swipe up just closes it
+            state = S.DONE
+            collapseShade()
+        } else if (state == S.SWIPED) {
             if (peekOn) {
                 state = S.PEEK
                 PeekBridge.begin(ax, ay)
@@ -196,15 +205,58 @@ class TriggerAccessibilityService : AccessibilityService() {
         return true
     }
 
+    /** Is the notification shade / quick settings pulled down? (best effort, through root) */
+    private fun checkShade() {
+        shadeOpen = false
+        shadeCheck = Thread {
+            val out = Root.exec(
+                "dumpsys window | grep -E 'mCurrentFocus|mFocusedWindow'; dumpsys statusbar | grep -i -E 'expanded'"
+            )
+            val focusShade = out.lines().any {
+                (it.contains("mCurrentFocus") || it.contains("mFocusedWindow")) &&
+                    (it.contains("NotificationShade") || it.contains("StatusBar"))
+            }
+            val flag = Regex("(?i)(expandedvisible|panelexpanded|shadeexpanded|isexpanded)\\s*[=:]\\s*true")
+                .containsMatchIn(out)
+            shadeOpen = focusShade || flag
+        }.also { it.start() }
+    }
+
+    private fun collapseShade() {
+        Thread { Root.exec("cmd statusbar collapse") }.start()
+    }
+
+    /** Swipe-up released: close the shade if it is open, otherwise go home. */
+    private fun homeOrCollapse() {
+        Thread {
+            try {
+                shadeCheck?.join(700)
+            } catch (e: InterruptedException) {
+                // ignore
+            }
+            if (shadeOpen) collapseShade() else handler.post { performGlobalAction(GLOBAL_ACTION_HOME) }
+        }.start()
+    }
+
     private fun onPointer(action: Int, x: Float, y: Float) {
-        if (raw != null && RecentsActivity.visible && state == S.IDLE) return
+        // Switcher is open and a root-read touch started on the gesture handle: it drives the pull-up.
+        if (raw != null && RecentsActivity.visible && state == S.IDLE &&
+            (forwarding || action == MotionEvent.ACTION_DOWN)
+        ) {
+            forwarding = action != MotionEvent.ACTION_UP && action != MotionEvent.ACTION_CANCEL
+            RecentsActivity.rawPull?.invoke(action, x, y)
+            return
+        }
         when (action) {
             MotionEvent.ACTION_DOWN -> {
                 state = S.TRACK
                 gestureActive = true
                 sx = x; sy = y
                 // start loading the task list now, so it is ready when the switcher opens
-                if (!RecentsActivity.visible) Prefetch.begin(this)
+                if (!RecentsActivity.visible) {
+                    Prefetch.begin(this)
+                    checkShade()
+                }
             }
 
             MotionEvent.ACTION_MOVE -> {
@@ -231,7 +283,7 @@ class TriggerAccessibilityService : AccessibilityService() {
                 handler.removeCallbacks(holdRunnable)
                 // Swiped up and let go without holding: go home.
                 if (state == S.SWIPED && action == MotionEvent.ACTION_UP) {
-                    performGlobalAction(GLOBAL_ACTION_HOME)
+                    homeOrCollapse()
                 }
                 if (state == S.PEEK) PeekBridge.release()
                 state = S.IDLE
