@@ -387,7 +387,7 @@ class SettingsActivity : Activity() {
     private val aSurfaceContainer get() = attr(com.google.android.material.R.attr.colorSurfaceContainer)
     private val aOnSurface get() = attr(com.google.android.material.R.attr.colorOnSurface)
     private val aOnSurfaceVariant get() = attr(com.google.android.material.R.attr.colorOnSurfaceVariant)
-    private val aPrimary get() = attr(com.google.android.material.R.attr.colorPrimary)
+    private val aPrimary get() = attr(androidx.appcompat.R.attr.colorPrimary)
     private val aSecContainer get() = attr(com.google.android.material.R.attr.colorSecondaryContainer)
     private val aOnSecContainer get() = attr(com.google.android.material.R.attr.colorOnSecondaryContainer)
 
