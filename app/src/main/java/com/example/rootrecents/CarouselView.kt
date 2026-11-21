@@ -97,6 +97,7 @@ class CarouselView @JvmOverloads constructor(ctx: Context, attrs: AttributeSet? 
     private var bounceAmount = 0.5f
 
     fun applyConfig(c: Config) {
+        peekGain = c.int(Config.PEEK_INTENSITY) / 100f
         mode = if (c.layoutMode == 1) Mode.STACK else Mode.NORMAL
         snap = c.snap
         haptics = c.haptics
@@ -125,6 +126,12 @@ class CarouselView @JvmOverloads constructor(ctx: Context, attrs: AttributeSet? 
     var onEmptyTap: (() -> Unit)? = null
     var onDismissed: ((List<RecentTask>) -> Unit)? = null
     var onAllGone: (() -> Unit)? = null
+    /** Peek released with the finger pulled down: dismiss the switcher. */
+    var onPeekDismiss: (() -> Unit)? = null
+    /** Quick switch: a single card (the previous app), no "Clear all". */
+    var quick = false
+    private var peekGain = 1f
+    private var peekRawDy = 0f
     /** The last real card has just started leaving (hide buttons now, not when it is gone). */
     var onEmptying: (() -> Unit)? = null
     var onPullClose: (() -> Unit)? = null
@@ -285,7 +292,7 @@ class CarouselView @JvmOverloads constructor(ctx: Context, attrs: AttributeSet? 
         peeking = false
 
         val inflater = LayoutInflater.from(context)
-        if (hasClear) addCard(Card(inflater.inflate(R.layout.item_clear, this, false), null))
+        if (hasClear && !quick) addCard(Card(inflater.inflate(R.layout.item_clear, this, false), null))
         for (t in tasks) {
             val c = Card(inflater.inflate(R.layout.item_task, this, false), t)
             bind(c)
@@ -1270,12 +1277,26 @@ class CarouselView @JvmOverloads constructor(ctx: Context, attrs: AttributeSet? 
     fun peekMove(fx: Float, fy: Float, dx: Float, dy: Float) {
         peekFx = fx
         peekFy = fy
-        peekDx = dx
-        peekDy = dy
+        peekRawDy = dy
+        peekDx = dx * peekGain * (if (quick) 1.6f else 1f)
+        peekDy = dy * peekGain
+    }
+
+    /** Stop the peek physics and leave the cards where they are (the caller takes over). */
+    fun peekCancel() {
+        peeking = false
+        busy = false
+        physics.cancel(peekMotion)
     }
 
     fun peekRelease() {
         if (!peeking) return
+        if (!quick && peekRawDy > dp(70f)) {
+            // let go below where the finger started: dismiss
+            peekCancel()
+            onPeekDismiss?.invoke()
+            return
+        }
         peekReleased = true
         busy = false
         physics.start(peekMotion)

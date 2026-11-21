@@ -72,7 +72,12 @@ object RecentTasks {
     )
 
     /** Phase 1, fast: one root call for the task list and the snapshot file names. No image decoding. */
-    fun loadList(ctx: Context, hidden: Set<String>, showForeground: Boolean): Listing {
+    fun loadList(
+        ctx: Context,
+        hidden: Set<String>,
+        showForeground: Boolean,
+        hiddenApps: Set<String> = emptySet()
+    ): Listing {
         val raw = Root.exec(
             "dumpsys activity recents; echo '@@SNAPS'; ls -d /data/system_ce/*/snapshots/*.jpg 2>/dev/null"
         )
@@ -97,7 +102,7 @@ object RecentTasks {
         val fgId = if (first != null && !first.isHome && first.visible != false) first.id else -1
         val parsed = all.filter { !it.isHome }
         val wanted = parsed.filter { p ->
-            !hidden.contains(p.id.toString()) && (showForeground || p.id != fgId)
+            !hidden.contains(p.id.toString()) && (showForeground || p.id != fgId) && p.pkg !in hiddenApps
         }
 
         val tasks = ArrayList<RecentTask>()

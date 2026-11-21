@@ -75,6 +75,10 @@ class SettingsActivity : Activity() {
         slider("Card to app: hold before fade", Config.OPEN_HOLD) { "$it ms" }
         slider("Card to app: fade duration", Config.OPEN_FADE) { "$it ms" }
 
+        section("Hidden apps")
+        button("Choose apps to hide from the switcher") { pickHiddenApps() }
+        note("Hidden apps never show up in the switcher (they stay open in the background).")
+
         section("Foreground app")
         toggle("Show the app that is in the foreground", cfg.showForeground) { cfg.showForeground = it }
 
@@ -85,6 +89,8 @@ class SettingsActivity : Activity() {
             TriggerAccessibilityService.instance?.rebuild()
         }
         toggle("Show the peek animation while holding", cfg.triggerHold) { cfg.triggerHold = it }
+        slider("Peek intensity (how far the cards follow your finger)", Config.PEEK_INTENSITY) { "$it%" }
+        toggle("Swipe right along the bottom to show the previous app", cfg.quickSwitch) { cfg.quickSwitch = it }
         slider("Sensitivity (height of the touch zone)", Config.TRIG_ZONE) { "$it dp" }
         slider("Swipe length", Config.TRIG_LENGTH) { "$it dp" }
         slider("Hold time", Config.TRIG_HOLD) { "$it ms" }
@@ -312,6 +318,31 @@ class SettingsActivity : Activity() {
 
     private fun matchWrap() =
         LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT)
+
+    private fun pickHiddenApps() {
+        Thread {
+            val pm = packageManager
+            val intent = android.content.Intent(android.content.Intent.ACTION_MAIN)
+                .addCategory(android.content.Intent.CATEGORY_LAUNCHER)
+            val apps = pm.queryIntentActivities(intent, 0)
+                .map { it.activityInfo.packageName to it.loadLabel(pm).toString() }
+                .distinctBy { it.first }
+                .filter { it.first != packageName }
+                .sortedBy { it.second.lowercase() }
+            runOnUiThread {
+                val hidden = cfg.hiddenAppsSet.toMutableSet()
+                val checked = BooleanArray(apps.size) { apps[it].first in hidden }
+                android.app.AlertDialog.Builder(this)
+                    .setTitle("Hide from the switcher")
+                    .setMultiChoiceItems(apps.map { it.second }.toTypedArray(), checked) { _, i, on ->
+                        if (on) hidden.add(apps[i].second.let { apps[i].first }) else hidden.remove(apps[i].first)
+                    }
+                    .setPositiveButton("Save") { _, _ -> cfg.hiddenApps = hidden.joinToString(",") }
+                    .setNegativeButton("Cancel", null)
+                    .show()
+            }
+        }.start()
+    }
 
     private fun section(name: String) {
         val tv = TextView(this).apply {

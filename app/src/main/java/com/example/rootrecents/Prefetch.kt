@@ -72,7 +72,7 @@ object Prefetch {
             Thread { shot = Root.screenshot() }.also { it.start() }
         } else null
 
-        val listing = RecentTasks.loadList(ctx, hidden, config.showForeground)
+        val listing = RecentTasks.loadList(ctx, hidden, config.showForeground, config.hiddenAppsSet)
         if (listing.noRoot) {
             shotThread?.interrupt()
             j.result = Loaded(emptyList(), true)

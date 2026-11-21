@@ -44,6 +44,10 @@ class Config private constructor(private val sp: SharedPreferences) {
         /** How long (ms) the cover takes to fade away. */
         val OPEN_FADE = IntSpec("openFade", 250, 40, 1000)
 
+        // ---- peek ----
+        /** How strongly the cards follow the finger while peeking (percent). */
+        val PEEK_INTENSITY = IntSpec("peekIntensity", 100, 20, 300)
+
         // ---- bottom trigger ----
         /** Height of the touch zone along the bottom edge, in dp (bigger = easier to hit). */
         val TRIG_ZONE = IntSpec("trigZone", 24, 8, 80)
@@ -154,6 +158,19 @@ class Config private constructor(private val sp: SharedPreferences) {
     var rawTouch: Boolean
         get() = sp.getBoolean("rawTouch", false)
         set(v) = sp.edit().putBoolean("rawTouch", v).apply()
+
+    /** Swiping sideways along the bottom edge shows the previous app. */
+    var quickSwitch: Boolean
+        get() = sp.getBoolean("quickSwitch", true)
+        set(v) = sp.edit().putBoolean("quickSwitch", v).apply()
+
+    /** Comma separated package names that never show up in the switcher. */
+    var hiddenApps: String
+        get() = sp.getString("hiddenApps", "") ?: ""
+        set(v) = sp.edit().putString("hiddenApps", v).apply()
+
+    val hiddenAppsSet: Set<String>
+        get() = hiddenApps.split(',', ' ', '\n').map { it.trim() }.filter { it.isNotEmpty() }.toSet()
 
     // ---- derived values used by the physics ----
 

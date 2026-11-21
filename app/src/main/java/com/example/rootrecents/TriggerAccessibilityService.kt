@@ -35,7 +35,7 @@ class TriggerAccessibilityService : AccessibilityService() {
             private set
     }
 
-    private enum class S { IDLE, TRACK, SWIPED, PEEK, DONE }
+    private enum class S { IDLE, TRACK, SWIPED, PEEK, SIDE, DONE }
 
     private lateinit var wm: WindowManager
     private lateinit var config: Config
@@ -169,7 +169,7 @@ class TriggerAccessibilityService : AccessibilityService() {
         raw?.stop()
         raw = null
         // never leave the recents screen waiting for a release that can no longer come
-        if (state == S.PEEK) PeekBridge.release()
+        if (state == S.PEEK || state == S.SIDE) PeekBridge.release()
         state = S.IDLE
         gestureActive = false
         strip?.let {
@@ -261,7 +261,15 @@ class TriggerAccessibilityService : AccessibilityService() {
 
             MotionEvent.ACTION_MOVE -> {
                 when (state) {
-                    S.TRACK -> if (sy - y >= lengthPx) {
+                    S.TRACK -> if (config.quickSwitch && !shadeOpen && x - sx >= sideLen() &&
+                        (x - sx) > 1.5f * (sy - y).coerceAtLeast(0f)
+                    ) {
+                        // swiping right along the bottom: show the previous app
+                        state = S.SIDE
+                        PeekBridge.begin(sx, sy)
+                        PeekBridge.move(x, y)
+                        openRecents(true, true)
+                    } else if (sy - y >= lengthPx) {
                         state = S.SWIPED
                         ax = x; ay = y
                         handler.postDelayed(holdRunnable, holdMs)
@@ -274,7 +282,7 @@ class TriggerAccessibilityService : AccessibilityService() {
                         handler.postDelayed(holdRunnable, holdMs)
                     }
 
-                    S.PEEK -> PeekBridge.move(x, y)
+                    S.PEEK, S.SIDE -> PeekBridge.move(x, y)
                     else -> {}
                 }
             }
@@ -285,7 +293,7 @@ class TriggerAccessibilityService : AccessibilityService() {
                 if (state == S.SWIPED && action == MotionEvent.ACTION_UP) {
                     homeOrCollapse()
                 }
-                if (state == S.PEEK) PeekBridge.release()
+                if (state == S.PEEK || state == S.SIDE) PeekBridge.release()
                 state = S.IDLE
                 gestureActive = false
                 if (pendingRebuild) {
@@ -298,7 +306,9 @@ class TriggerAccessibilityService : AccessibilityService() {
         }
     }
 
-    private fun openRecents(peek: Boolean) {
+    private fun sideLen() = 36f * resources.displayMetrics.density
+
+    private fun openRecents(peek: Boolean, quick: Boolean = false) {
         if (RecentsActivity.visible) return
         val i = Intent(this, RecentsActivity::class.java)
             .setAction("com.example.rootrecents.SHOW")
@@ -307,6 +317,7 @@ class TriggerAccessibilityService : AccessibilityService() {
                     Intent.FLAG_ACTIVITY_REORDER_TO_FRONT
             )
             .putExtra("peek", peek)
+            .putExtra("quick", quick)
         try {
             startActivity(i)
         } catch (e: Exception) {
@@ -314,8 +325,8 @@ class TriggerAccessibilityService : AccessibilityService() {
         }
         // Background starts can be silently blocked: if nothing showed up, start it through root.
         handler.postDelayed({
-            if (!RecentsActivity.visible && (state == S.PEEK || state == S.DONE || state == S.IDLE)) {
-                Thread { Actions.startRecents(if (peek) "--ez peek true" else "") }.start()
+            if (!RecentsActivity.visible && (state == S.PEEK || state == S.SIDE || state == S.DONE || state == S.IDLE)) {
+                Thread { Actions.startRecents((if (peek) "--ez peek true " else "") + (if (quick) "--ez quick true" else "")) }.start()
             }
         }, 350)
     }

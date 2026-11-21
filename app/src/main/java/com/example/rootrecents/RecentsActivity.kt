@@ -62,17 +62,39 @@ class RecentsActivity : Activity() {
     private var loaded: List<RecentTask>? = null
     private var shown = false
     private var peekMode = false
+    private var quickMode = false
+    private var qVx = 0f
+    private var qT = 0L
+    private var qLastX = 0f
 
     private val prefs by lazy { getSharedPreferences("recents", MODE_PRIVATE) }
 
+    private var lastDx = 0f
+
     private val peekListener = object : PeekBridge.Listener {
         override fun onMove(fx: Float, fy: Float, dx: Float, dy: Float) {
+            val now = android.os.SystemClock.uptimeMillis()
+            if (qT != 0L && now > qT) qVx = 0.6f * qVx + 0.4f * ((fx - qLastX) / ((now - qT) / 1000f))
+            qT = now; qLastX = fx
             if (carousel.visibility == View.VISIBLE) carousel.peekMove(fx, fy, dx, dy)
+            lastDx = dx
         }
 
         override fun onRelease() {
             // with nothing to show, letting go just unblurs and closes
-            if (carousel.visibility == View.VISIBLE) carousel.peekRelease() else closeAnimated()
+            if (carousel.visibility != View.VISIBLE) {
+                closeAnimated()
+            } else if (quickMode) {
+                val w = resources.displayMetrics.widthPixels.toFloat()
+                val card = carousel.focusedCard()
+                if (card != null && (lastDx >= w * 0.4f || (qVx > 900f && lastDx >= w * 0.2f))) {
+                    carousel.peekCancel()
+                    openTask(card, false)
+                } else {
+                    carousel.peekCancel()
+                    closeAnimated()
+                }
+            } else carousel.peekRelease()
         }
     }
 
@@ -81,7 +103,8 @@ class RecentsActivity : Activity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         config = Config.get(this)
-        peekMode = intent.getBooleanExtra("peek", false)
+        quickMode = intent.getBooleanExtra("quick", false)
+        peekMode = intent.getBooleanExtra("peek", false) || quickMode
         tint = config.tintColor(this)
 
         window.setBackgroundDrawable(dim)
@@ -98,7 +121,9 @@ class RecentsActivity : Activity() {
         empty = findViewById(R.id.empty)
         carousel.alpha = 0f
 
+        carousel.quick = quickMode
         carousel.applyConfig(config)
+        carousel.onPeekDismiss = { closeAnimated() }
 
         carousel.onCardClick = { card -> openTask(card, false) }
         carousel.onPillClick = { card -> showMenu(card) }
@@ -130,7 +155,8 @@ class RecentsActivity : Activity() {
         setIntent(intent)
         if (!closing && !launching && !PeekBridge.isActive) {
             // A fresh trigger while already open: start over.
-            peekMode = intent.getBooleanExtra("peek", false)
+            quickMode = intent.getBooleanExtra("quick", false)
+            peekMode = intent.getBooleanExtra("peek", false) || quickMode
             shown = false
             loaded = null
             carousel.alpha = 0f
@@ -233,7 +259,9 @@ class RecentsActivity : Activity() {
         show(tasks)
     }
 
-    private fun show(tasks: List<RecentTask>) {
+    private fun show(allTasks: List<RecentTask>) {
+        // quick switch shows just the previous app (the newest one that is not the foreground)
+        val tasks = if (quickMode) listOfNotNull(allTasks.lastOrNull { !it.foreground }) else allTasks
         if (tasks.isEmpty()) {
             showEmpty()
             return

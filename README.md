@@ -78,3 +78,6 @@ you want force-stop (a never-stop list is there too).
 
 ## 0.12
 - Swipe-up pull-to-close works with root touch mode; shade/quick settings close on swipe up; clear-all/empty-state fixes; dark Material You bottom button.
+
+## 0.13
+- Hidden apps picker, peek intensity slider, swipe right along the bottom = previous app, peek released pulled down closes.
