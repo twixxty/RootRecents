@@ -1,4 +1,4 @@
-package com.example.rootrecents
+package com.twixxty.rootrecents
 
 import android.app.Activity
 import android.app.AlertDialog
@@ -29,12 +29,45 @@ class SettingsActivity : Activity() {
         super.onCreate(savedInstanceState)
         title = "Root Recents"
         cfg = Config.get(this)
+        Root.init(applicationContext)
 
         col = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             setPadding(dp(20), dp(8), dp(20), dp(32))
         }
-        setContentView(ScrollView(this).apply { addView(col) })
+        window.decorView.setBackgroundColor(MaterialYou.pageBg(this))
+        window.statusBarColor = MaterialYou.pageBg(this)
+        window.navigationBarColor = MaterialYou.pageBg(this)
+        if (!MaterialYou.isNight(this)) {
+            window.decorView.systemUiVisibility = View.SYSTEM_UI_FLAG_LIGHT_STATUS_BAR or
+                View.SYSTEM_UI_FLAG_LIGHT_NAVIGATION_BAR
+        }
+        setContentView(ScrollView(this).apply {
+            isFillViewport = true
+            clipToPadding = false
+            addView(col)
+            setOnApplyWindowInsetsListener { v, ins ->
+                @Suppress("DEPRECATION")
+                v.setPadding(0, ins.systemWindowInsetTop, 0, ins.systemWindowInsetBottom)
+                ins
+            }
+        })
+        header()
+
+        section("Access")
+        choice("Run commands with", listOf("Automatic", "Root", "Shizuku (no root)"), cfg.backend) {
+            cfg.backend = it
+            Root.init(applicationContext)
+            Root.reset()
+            refreshAccess()
+        }
+        accessRow()
+        button("Grant Shizuku permission") { requestShizuku() }
+        note(
+            "Root gives everything. Shizuku works without root (start it first, from the Shizuku app): " +
+                "everything works except the system's own app snapshots, so cards show a preview of an " +
+                "app only after you have used it with the bottom trigger on."
+        )
 
         section("Layout")
         choice("Style", listOf("Cards (flat row, Android 16 pill)", "Stack (iOS)"), cfg.layoutMode) { cfg.layoutMode = it }
@@ -130,9 +163,14 @@ class SettingsActivity : Activity() {
                 .show()
         }
         note(
-            "Open from a root shell with:\nam start -a com.example.rootrecents.SHOW\n\n" +
+            "Open from a root shell with:\nam start -a com.twixxty.rootrecents.SHOW\n\n" +
                 "Settings are read each time recents opens."
         )
+    }
+
+    override fun onResume() {
+        super.onResume()
+        refreshAccess()
     }
 
     override fun onPause() {
@@ -170,24 +208,10 @@ class SettingsActivity : Activity() {
     private var swatch: TextView? = null
 
     private fun colorRow() {
-        val title = TextView(this).apply {
-            text = "Tint colour"
-            textSize = 16f
-        }
-        val sw = TextView(this).apply {
-            textSize = 14f
-            alpha = 0.9f
-        }
+        val sw = TextView(this).apply { textSize = 14f }
         swatch = sw
         refreshSwatch()
-        val row = LinearLayout(this).apply {
-            orientation = LinearLayout.HORIZONTAL
-            setPadding(0, dp(12), 0, dp(12))
-            addView(title, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
-            addView(sw)
-            setOnClickListener { pickColor() }
-        }
-        col.addView(row, matchWrap())
+        row("Tint colour", sw) { pickColor() }
     }
 
     private fun refreshSwatch() {
@@ -346,24 +370,123 @@ class SettingsActivity : Activity() {
         }.start()
     }
 
-    private fun section(name: String) {
-        val tv = TextView(this).apply {
-            text = name.uppercase()
-            textSize = 12f
-            alpha = 0.6f
-            letterSpacing = 0.08f
+    // ---------------------------------------------------------------- Material 3 expressive rows
+
+    private var grp: LinearLayout? = null
+    private var accessView: TextView? = null
+
+    private fun put(v: View, lp: LinearLayout.LayoutParams = matchWrap()) {
+        (grp ?: col).addView(v, lp)
+    }
+
+    private fun roundRect(color: Int, radiusDp: Int) = android.graphics.drawable.GradientDrawable().apply {
+        setColor(color)
+        cornerRadius = dp(radiusDp).toFloat()
+    }
+
+    private fun title(t: String) = TextView(this).apply {
+        text = t
+        textSize = 16f
+        setTextColor(MaterialYou.text(this@SettingsActivity))
+    }
+
+    private fun subtitle(t: String) = TextView(this).apply {
+        text = t
+        textSize = 13f
+        setTextColor(MaterialYou.textDim(this@SettingsActivity))
+    }
+
+    /** "Name (explanation)" labels become a title with a smaller line under it. */
+    private fun textBlock(label: String): LinearLayout {
+        var main = label
+        var sub: String? = null
+        val k = label.indexOf(" (")
+        if (k > 0 && label.endsWith(")")) {
+            main = label.substring(0, k)
+            sub = label.substring(k + 2, label.length - 1).replaceFirstChar { it.uppercase() }
         }
-        col.addView(tv, matchWrap().apply { topMargin = dp(24); bottomMargin = dp(6) })
+        return LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            addView(title(main))
+            if (sub != null) addView(subtitle(sub), matchWrap().apply { topMargin = dp(2) })
+        }
+    }
+
+    private fun chip(text: String) = TextView(this).apply {
+        this.text = text
+        textSize = 13f
+        setTextColor(MaterialYou.onContainer(this@SettingsActivity))
+        background = roundRect(MaterialYou.container(this@SettingsActivity), 14)
+        setPadding(dp(12), dp(5), dp(12), dp(5))
+    }
+
+    private fun header() {
+        col.addView(TextView(this).apply {
+            text = "Root Recents"
+            textSize = 34f
+            typeface = android.graphics.Typeface.create("sans-serif-medium", android.graphics.Typeface.NORMAL)
+            setTextColor(MaterialYou.text(this@SettingsActivity))
+        }, matchWrap().apply { topMargin = dp(36); bottomMargin = dp(2); leftMargin = dp(8) })
+        col.addView(TextView(this).apply {
+            text = "A recents screen that feels the way you want"
+            textSize = 14f
+            setTextColor(MaterialYou.textDim(this@SettingsActivity))
+        }, matchWrap().apply { leftMargin = dp(8) })
+    }
+
+    private fun section(name: String) {
+        col.addView(TextView(this).apply {
+            text = name
+            textSize = 14f
+            typeface = android.graphics.Typeface.create("sans-serif-medium", android.graphics.Typeface.NORMAL)
+            setTextColor(MaterialYou.accent(this@SettingsActivity))
+            letterSpacing = 0.02f
+        }, matchWrap().apply { topMargin = dp(26); bottomMargin = dp(8); leftMargin = dp(12) })
+        val g = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            background = roundRect(MaterialYou.card(this@SettingsActivity), 28)
+            setPadding(dp(20), dp(8), dp(20), dp(8))
+        }
+        col.addView(g, matchWrap())
+        grp = g
+    }
+
+    /** A row with text on the left and an optional control on the right. */
+    private fun row(label: String, trailing: View?, onClick: (() -> Unit)? = null): LinearLayout {
+        val r = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = android.view.Gravity.CENTER_VERTICAL
+            setPadding(0, dp(12), 0, dp(12))
+            addView(textBlock(label), LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
+            if (trailing != null) addView(trailing, LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT
+            ).apply { leftMargin = dp(12) })
+            if (onClick != null) {
+                isClickable = true
+                setOnClickListener { onClick() }
+            }
+        }
+        put(r)
+        return r
     }
 
     private fun toggle(label: String, value: Boolean, onChange: (Boolean) -> Unit) {
         val sw = Switch(this).apply {
-            text = label
-            textSize = 16f
             isChecked = value
+            val on = MaterialYou.accent(this@SettingsActivity)
+            val off = MaterialYou.textDim(this@SettingsActivity)
+            val states = arrayOf(intArrayOf(android.R.attr.state_checked), intArrayOf())
+            thumbTintList = android.content.res.ColorStateList(
+                states, intArrayOf(MaterialYou.onAccent(this@SettingsActivity), off)
+            )
+            trackTintList = android.content.res.ColorStateList(
+                states, intArrayOf(on, (off and 0x00FFFFFF) or 0x40000000)
+            )
             setOnCheckedChangeListener { _, checked -> onChange(checked) }
         }
-        col.addView(sw, matchWrap().apply { topMargin = dp(10); bottomMargin = dp(10) })
+        val r = row(label, sw)
+        r.isClickable = true
+        r.setOnClickListener { sw.toggle() }
     }
 
     /** A slider with its current value and a small reset button that restores the default. */
@@ -374,31 +497,30 @@ class SettingsActivity : Activity() {
         fmt: (Int) -> String
     ) {
         val value = cfg.int(spec)
-        val title = TextView(this).apply {
-            text = label
-            textSize = 16f
-        }
-        val valueView = TextView(this).apply {
-            text = fmt(value)
-            textSize = 14f
-            alpha = 0.7f
-        }
+        val valueView = chip(fmt(value))
         val bar = SeekBar(this)
+        val accent = MaterialYou.accent(this)
+        bar.progressTintList = android.content.res.ColorStateList.valueOf(accent)
+        bar.thumbTintList = android.content.res.ColorStateList.valueOf(accent)
+        bar.progressBackgroundTintList = android.content.res.ColorStateList.valueOf(
+            (MaterialYou.textDim(this) and 0x00FFFFFF) or 0x33000000
+        )
         bar.max = spec.hi - spec.lo
         bar.progress = value - spec.lo
         val reset = TextView(this).apply {
             text = "\u21BA"
             textSize = 20f
-            setPadding(dp(14), 0, 0, 0)
+            setTextColor(MaterialYou.textDim(this@SettingsActivity))
+            setPadding(dp(12), 0, 0, 0)
             setOnClickListener {
                 bar.progress = spec.def - spec.lo
                 cfg.setInt(spec, spec.def)
                 valueView.text = fmt(spec.def)
             }
         }
-        val head = LinearLayout(this).apply {
+        val right = LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
-            addView(title, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
+            gravity = android.view.Gravity.CENTER_VERTICAL
             addView(valueView)
             addView(reset)
         }
@@ -422,88 +544,108 @@ class SettingsActivity : Activity() {
                 if (showPreview) hidePreview()
             }
         })
-        col.addView(head, matchWrap().apply { topMargin = dp(10) })
-        col.addView(bar, matchWrap().apply { bottomMargin = dp(6) })
+        val r = row(label, right)
+        r.setPadding(0, dp(12), 0, 0)
+        put(bar, matchWrap().apply { bottomMargin = dp(8) })
     }
 
     private fun choice(label: String, options: List<String>, current: Int, onPick: (Int) -> Unit) {
-        val title = TextView(this).apply {
-            text = label
-            textSize = 16f
-        }
-        val valueView = TextView(this).apply {
-            text = options[current.coerceIn(0, options.size - 1)]
-            textSize = 14f
-            alpha = 0.7f
-        }
         var selected = current
-        val row = LinearLayout(this).apply {
-            orientation = LinearLayout.HORIZONTAL
-            setPadding(0, dp(12), 0, dp(12))
-            addView(title, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
-            addView(valueView)
-            setOnClickListener {
-                AlertDialog.Builder(this@SettingsActivity)
-                    .setTitle(label)
-                    .setSingleChoiceItems(options.toTypedArray(), selected) { dialog, which ->
-                        selected = which
-                        valueView.text = options[which]
-                        onPick(which)
-                        dialog.dismiss()
-                    }
-                    .show()
-            }
+        val valueView = chip(options[current.coerceIn(0, options.size - 1)])
+        row(label, valueView) {
+            AlertDialog.Builder(this@SettingsActivity)
+                .setTitle(label.substringBefore(" ("))
+                .setSingleChoiceItems(options.toTypedArray(), selected) { dialog, which ->
+                    selected = which
+                    valueView.text = options[which]
+                    onPick(which)
+                    dialog.dismiss()
+                }
+                .show()
         }
-        col.addView(row, matchWrap())
     }
 
     private fun textRow(label: String, hint: String) {
-        val title = TextView(this).apply {
-            text = label
-            textSize = 16f
-        }
-        val sub = TextView(this).apply {
-            text = hint
-            textSize = 13f
-            alpha = 0.6f
-        }
-        val row = LinearLayout(this).apply {
-            orientation = LinearLayout.VERTICAL
-            setPadding(0, dp(12), 0, dp(12))
-            addView(title)
-            addView(sub)
-            setOnClickListener {
-                val input = EditText(this@SettingsActivity).apply {
-                    setText(cfg.neverStop)
-                    setSingleLine(false)
-                    setSelection(text.length)
-                }
-                AlertDialog.Builder(this@SettingsActivity)
-                    .setTitle(label)
-                    .setView(input)
-                    .setPositiveButton("Save") { _, _ -> cfg.neverStop = input.text.toString() }
-                    .setNegativeButton("Cancel", null)
-                    .show()
+        row("$label ($hint)", null) {
+            val input = EditText(this@SettingsActivity).apply {
+                setText(cfg.neverStop)
+                setSingleLine(false)
+                setSelection(text.length)
             }
+            AlertDialog.Builder(this@SettingsActivity)
+                .setTitle(label)
+                .setView(input)
+                .setPositiveButton("Save") { _, _ -> cfg.neverStop = input.text.toString() }
+                .setNegativeButton("Cancel", null)
+                .show()
         }
-        col.addView(row, matchWrap())
     }
 
+    /** Filled tonal button. */
     private fun button(label: String, onClick: (View) -> Unit) {
-        val b = android.widget.Button(this).apply {
+        val b = TextView(this).apply {
             text = label
-            isAllCaps = false
+            textSize = 15f
+            gravity = android.view.Gravity.CENTER
+            typeface = android.graphics.Typeface.create("sans-serif-medium", android.graphics.Typeface.NORMAL)
+            setTextColor(MaterialYou.onContainer(this@SettingsActivity))
+            background = roundRect(MaterialYou.container(this@SettingsActivity), 24)
+            setPadding(dp(20), dp(14), dp(20), dp(14))
+            isClickable = true
             setOnClickListener(onClick)
         }
-        col.addView(b, matchWrap().apply { topMargin = dp(8) })
+        put(b, matchWrap().apply { topMargin = dp(8); bottomMargin = dp(4) })
     }
 
     private fun note(text: String) {
-        val tv = TextView(this).apply {
-            this.text = text
-            textSize = 13f
-            alpha = 0.6f
+        put(subtitle(text).apply { textSize = 12.5f }, matchWrap().apply { topMargin = dp(8); bottomMargin = dp(8) })
+    }
+
+    // ---------------------------------------------------------------- access (root / Shizuku)
+
+    private fun accessRow() {
+        val tv = subtitle("Checking...")
+        accessView = tv
+        put(tv, matchWrap().apply { topMargin = dp(4); bottomMargin = dp(8) })
+        refreshAccess()
+    }
+
+    private fun refreshAccess() {
+        val tv = accessView ?: return
+        Thread {
+            Root.reset()
+            val root = Root.rootWorks()
+            val running = Root.shizukuRunning()
+            val granted = Root.shizukuReady()
+            val using = when (Root.backend()) {
+                Root.ROOT -> "root"
+                Root.SHIZUKU -> "Shizuku"
+                else -> "nothing yet"
+            }
+            val text = "Root: " + (if (root) "available" else "not available") +
+                "\nShizuku: " + (if (!running) "not running" else if (granted) "ready" else "running, permission needed") +
+                "\nUsing: $using"
+            runOnUiThread { tv.text = text }
+        }.start()
+    }
+
+    private fun requestShizuku() {
+        if (!Root.shizukuRunning()) {
+            Toast.makeText(this, "Start Shizuku first (open the Shizuku app).", Toast.LENGTH_LONG).show()
+            return
         }
-        col.addView(tv, matchWrap().apply { topMargin = dp(12) })
+        try {
+            rikka.shizuku.Shizuku.addRequestPermissionResultListener(
+                object : rikka.shizuku.Shizuku.OnRequestPermissionResultListener {
+                    override fun onRequestPermissionResult(requestCode: Int, grantResult: Int) {
+                        rikka.shizuku.Shizuku.removeRequestPermissionResultListener(this)
+                        runOnUiThread { refreshAccess() }
+                    }
+                }
+            )
+            rikka.shizuku.Shizuku.requestPermission(7)
+        } catch (e: Throwable) {
+            Toast.makeText(this, "Couldn't ask Shizuku: $e", Toast.LENGTH_LONG).show()
+        }
     }
 }

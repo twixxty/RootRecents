@@ -1,4 +1,4 @@
-package com.example.rootrecents
+package com.twixxty.rootrecents
 
 import android.content.Context
 import android.graphics.Bitmap
@@ -7,43 +7,121 @@ import android.os.Handler
 import android.os.Looper
 import android.widget.Toast
 
-/** Tiny helper for running commands through `su`. Call from a background thread only. */
+/**
+ * Runs shell commands with elevated rights. Two ways to get them: root (`su`), or Shizuku (a shell
+ * with adb rights, for phones without root). Call from a background thread only.
+ */
 object Root {
 
-    private fun start(cmd: String): Process =
-        ProcessBuilder("su", "-c", cmd).redirectErrorStream(false).start()
+    const val AUTO = 0
+    const val ROOT = 1
+    const val SHIZUKU = 2
 
-    /** Runs [cmd] as root and returns stdout ("" on any failure). */
+    @Volatile
+    private var mode = AUTO
+
+    @Volatile
+    private var resolved = 0 // 0 unknown, ROOT, SHIZUKU
+
+    /** Reads the "access method" setting. Call whenever the app starts or the setting changes. */
+    fun init(ctx: Context) {
+        val m = Config.get(ctx).backend
+        if (m != mode) resolved = 0
+        mode = m
+    }
+
+    fun reset() {
+        resolved = 0
+    }
+
+    fun shizukuReady(): Boolean = try {
+        rikka.shizuku.Shizuku.pingBinder() &&
+            rikka.shizuku.Shizuku.checkSelfPermission() == android.content.pm.PackageManager.PERMISSION_GRANTED
+    } catch (e: Throwable) {
+        false
+    }
+
+    fun shizukuRunning(): Boolean = try {
+        rikka.shizuku.Shizuku.pingBinder()
+    } catch (e: Throwable) {
+        false
+    }
+
+    fun rootWorks(): Boolean = suWorks()
+
+    private fun suWorks(): Boolean = try {
+        val p = ProcessBuilder("su", "-c", "id").redirectErrorStream(true).start()
+        val out = p.inputStream.bufferedReader().readText()
+        p.waitFor()
+        out.contains("uid=0")
+    } catch (e: Exception) {
+        false
+    }
+
+    /** ROOT, SHIZUKU, or 0 when neither is usable right now. */
+    fun backend(): Int {
+        val r = resolved
+        if (r != 0) return r
+        val found = when (mode) {
+            ROOT -> if (suWorks()) ROOT else 0
+            SHIZUKU -> if (shizukuReady()) SHIZUKU else 0
+            else -> if (suWorks()) ROOT else if (shizukuReady()) SHIZUKU else 0
+        }
+        resolved = found
+        return found
+    }
+
+    /** True when commands run as the adb shell: the system's screenshot files are out of reach. */
+    val isShell: Boolean get() = backend() == SHIZUKU
+
+    private fun shizukuProcess(cmd: String): Process {
+        val m = Class.forName("rikka.shizuku.Shizuku").getDeclaredMethod(
+            "newProcess", Array<String>::class.java, Array<String>::class.java, String::class.java
+        )
+        m.isAccessible = true
+        return m.invoke(null, arrayOf("sh", "-c", cmd), null, null) as Process
+    }
+
+    /** Starts [cmd] with the chosen method. Stderr is separate unless [mergeErr]. */
+    fun spawn(cmd: String, mergeErr: Boolean = false): Process {
+        return when (backend()) {
+            SHIZUKU -> shizukuProcess(if (mergeErr) "($cmd) 2>&1" else cmd)
+            ROOT -> ProcessBuilder("su", "-c", cmd).redirectErrorStream(mergeErr).start()
+            else -> throw IllegalStateException("no root or Shizuku")
+        }
+    }
+
+    /** Runs [cmd] and returns stdout ("" on any failure). */
     fun exec(cmd: String): String = try {
-        val p = start(cmd)
+        val p = spawn(cmd)
         val out = p.inputStream.bufferedReader().readText()
         p.waitFor()
         out
-    } catch (e: Exception) {
+    } catch (e: Throwable) {
         ""
     }
 
     /** Like [exec] but stdout and stderr together, for commands whose errors we want to read. */
     fun execAll(cmd: String): String = try {
-        val p = ProcessBuilder("su", "-c", cmd).redirectErrorStream(true).start()
+        val p = spawn(cmd, true)
         val out = p.inputStream.bufferedReader().readText()
         p.waitFor()
         out
-    } catch (e: Exception) {
+    } catch (e: Throwable) {
         ""
     }
 
-    /** Runs [cmd] as root and returns raw stdout bytes, or null if empty / failed. */
+    /** Runs [cmd] and returns raw stdout bytes, or null if empty / failed. */
     fun execBytes(cmd: String): ByteArray? = try {
-        val p = start(cmd)
+        val p = spawn(cmd)
         val bytes = p.inputStream.readBytes()
         p.waitFor()
         if (bytes.isEmpty()) null else bytes
-    } catch (e: Exception) {
+    } catch (e: Throwable) {
         null
     }
 
-    fun available(): Boolean = exec("id").contains("uid=0")
+    fun available(): Boolean = backend() != 0
 
     /** Full-resolution screenshot (for overlays that must match the screen exactly). */
     fun screenshotFull(): Bitmap? {
@@ -76,7 +154,7 @@ object Actions {
         val apk = ctx.applicationInfo.sourceDir
         val out = Root.exec(
             "CLASSPATH='$apk' app_process /system/bin " +
-                "com.example.rootrecents.TaskRemover ${ids.joinToString(" ")}"
+                "com.twixxty.rootrecents.TaskRemover ${ids.joinToString(" ")}"
         )
         return out.lines()
             .mapNotNull { line ->
@@ -118,8 +196,13 @@ object Actions {
             "[ \"\$a\" = null ] && a=1.0; [ \"\$t\" = null ] && t=1.0; " +
             "settings put global window_animation_scale 0; " +
             "settings put global transition_animation_scale 0; " +
+            // First choice: bring the existing task forward, so the app is exactly where it was
+            // (e.g. Settings stays on the page you left it on). Only if that fails, start it fresh.
+            "r=\$(CLASSPATH='${ctx.applicationInfo.sourceDir}' app_process /system/bin " +
+            "com.twixxty.rootrecents.TaskRemover front ${task.id} 2>/dev/null); " +
+            "case \"\$r\" in *front:true*) ;; *) " +
             "am start -W --user ${task.userId} -n '${task.component}' " +
-            "-a android.intent.action.MAIN -c android.intent.category.LAUNCHER -f $LAUNCH_FLAGS; " +
+            "-a android.intent.action.MAIN -c android.intent.category.LAUNCHER -f $LAUNCH_FLAGS;; esac; " +
             "sleep 0.35; " +
             "settings put global window_animation_scale \$a; " +
             "settings put global transition_animation_scale \$t"
@@ -171,6 +254,6 @@ object Actions {
 
     /** Starts the recents screen from a place that may not be allowed to start activities. */
     fun startRecents(extras: String = "") {
-        Root.exec("am start -n com.example.rootrecents/.RecentsActivity -a com.example.rootrecents.SHOW $extras -f 0x10010000")
+        Root.exec("am start -n com.twixxty.rootrecents/.RecentsActivity -a com.twixxty.rootrecents.SHOW $extras -f 0x10010000")
     }
 }

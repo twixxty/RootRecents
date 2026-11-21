@@ -1,4 +1,4 @@
-package com.example.rootrecents
+package com.twixxty.rootrecents
 
 import android.view.Choreographer
 import kotlin.math.abs

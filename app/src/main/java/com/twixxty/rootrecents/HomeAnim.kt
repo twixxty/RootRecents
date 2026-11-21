@@ -1,4 +1,4 @@
-package com.example.rootrecents
+package com.twixxty.rootrecents
 
 import android.animation.Animator
 import android.animation.AnimatorListenerAdapter
@@ -31,6 +31,7 @@ class HomeAnim(private val ctx: Context, private val config: Config, private val
     private var blurMax = 0
     private var ran = false
     private var scrim: View? = null
+    private var stand: ImageView? = null
     private var radius = 0f
     private var curRadius = 0f
 
@@ -54,6 +55,20 @@ class HomeAnim(private val ctx: Context, private val config: Config, private val
             setBackgroundColor(config.tintColor(ctx))
             alpha = config.tintAlpha.coerceAtLeast(0.15f)
         }
+        // Until the real home screen has drawn, a blurred copy of the app stands in behind the
+        // shrinking picture, so the blur and tint are there from the very first frame.
+        val st = ImageView(ctx).apply {
+            setImageBitmap(shot)
+            scaleType = ImageView.ScaleType.FIT_XY
+            if (Build.VERSION.SDK_INT >= 31 && config.blur > 0) {
+                val rad = (config.blurRadiusPx * 0.6f).coerceAtLeast(8f)
+                setRenderEffect(
+                    android.graphics.RenderEffect.createBlurEffect(rad, rad, android.graphics.Shader.TileMode.CLAMP)
+                )
+            }
+        }
+        r.addView(st, FrameLayout.LayoutParams(sw, sh))
+        stand = st
         r.addView(sc, FrameLayout.LayoutParams(sw, sh))
         scrim = sc
         val p = ImageView(ctx).apply {
@@ -105,6 +120,13 @@ class HomeAnim(private val ctx: Context, private val config: Config, private val
             }
         }
         return config.int(Config.RADIUS_DP) * ctx.resources.displayMetrics.density
+    }
+
+    /** The real home screen has drawn: swap the stand-in for it (blurred by the window itself). */
+    fun homeReady() {
+        val st = stand ?: return
+        stand = null
+        st.animate().alpha(0f).setDuration(160).withEndAction { st.visibility = View.GONE }.start()
     }
 
     /** Shrinks the picture towards the upper third of the screen, unblurring what is behind it. */

@@ -4,20 +4,35 @@ plugins {
 }
 
 android {
-    namespace = "com.example.rootrecents"
+    namespace = "com.twixxty.rootrecents"
     compileSdk = 34
 
     defaultConfig {
-        applicationId = "com.example.rootrecents"
+        applicationId = "com.twixxty.rootrecents"
         minSdk = 29
         targetSdk = 34
-        versionCode = 17
-        versionName = "0.17"
+        versionCode = 18
+        versionName = "0.18"
+    }
+
+    // One fixed signing key for every build (debug and release), so each new APK installs as an
+    // update over the previous one instead of needing an uninstall first.
+    signingConfigs {
+        create("fixed") {
+            storeFile = file("rootrecents.jks")
+            storePassword = "rootrecents"
+            keyAlias = "twixxty"
+            keyPassword = "rootrecents"
+        }
     }
 
     buildTypes {
+        debug {
+            signingConfig = signingConfigs.getByName("fixed")
+        }
         release {
             isMinifyEnabled = false
+            signingConfig = signingConfigs.getByName("fixed")
         }
     }
 
@@ -31,6 +46,9 @@ android {
     }
 }
 
-// No third-party libraries: the physics, scrolling and layout are all in this project.
+// The physics, scrolling and layout are all in this project; Shizuku is only the bridge that
+// lets the app run its shell commands on phones without root.
 dependencies {
+    implementation("dev.rikka.shizuku:api:13.1.5")
+    implementation("dev.rikka.shizuku:provider:13.1.5")
 }

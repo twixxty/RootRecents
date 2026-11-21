@@ -1,4 +1,4 @@
-package com.example.rootrecents
+package com.twixxty.rootrecents
 
 import android.content.Context
 import android.content.pm.LauncherApps
@@ -39,6 +39,7 @@ object RecentTasks {
     private val userRe = Regex("""\bU=(\d+)""")
     private val blockUserRe = Regex("""\buserId=(\d+)""")
     private val effUidRe = Regex("""effectiveUid=u(\d+)a""")
+    private val numActRe = Regex("""numActivities=(\d+)""")
     private val visibleRe = Regex("""visible=(true|false)""")
     private val realActivity = Regex("""realActivity=([\w.]+)/([\w.$]+)""")
     private val cmp = Regex("""cmp=([\w.]+)/([\w.$]+)""")
@@ -214,6 +215,7 @@ object RecentTasks {
             var cls: String? = null
             var blockUser: Int? = null
             var effUser: Int? = null
+            var numActs: Int? = null
             var j = i + 1
             while (j < lines.size && j - i < MAX_BLOCK_LINES && !recentHeader.containsMatchIn(lines[j])) {
                 val line = lines[j]
@@ -224,12 +226,14 @@ object RecentTasks {
                         cls = m.groupValues[2]
                     }
                 }
+                if (numActs == null) numActs = numActRe.find(line)?.groupValues?.get(1)?.toIntOrNull()
                 if (blockUser == null) blockUser = blockUserRe.find(line)?.groupValues?.get(1)?.toIntOrNull()
                 if (effUser == null) effUser = effUidRe.find(line)?.groupValues?.get(1)?.toIntOrNull()
                 j++
             }
 
-            if (id != null && pkg != null && cls != null && pkg != ownPkg) {
+            // numActivities=0: an empty shell of a task (a "ghost"), nothing to go back to
+            if (id != null && pkg != null && cls != null && pkg != ownPkg && numActs != 0) {
                 out.add(Parsed(id, headerUser, blockUser, effUser, pkg, cls, visible, type))
             }
             i = j

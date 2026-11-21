@@ -1,4 +1,4 @@
-package com.example.rootrecents
+package com.twixxty.rootrecents
 
 import android.content.Context
 import android.os.Build
@@ -75,4 +75,28 @@ object MaterialYou {
     fun onDarkButton(ctx: Context) =
         if (Build.VERSION.SDK_INT >= 31) c(ctx, android.R.color.system_accent1_100, 0xFFE8DEF8.toInt())
         else 0xFFE8DEF8.toInt()
+
+    private fun n(ctx: Context, id: Int, fb: Int) = if (Build.VERSION.SDK_INT >= 31) c(ctx, id, fb) else fb
+
+    /** Settings page background. */
+    fun pageBg(ctx: Context) =
+        if (night(ctx)) n(ctx, android.R.color.system_neutral1_900, 0xFF141218.toInt())
+        else n(ctx, android.R.color.system_neutral1_10, 0xFFFEF7FF.toInt())
+
+    /** Rounded group cards on the settings page. */
+    fun card(ctx: Context) =
+        if (night(ctx)) n(ctx, android.R.color.system_neutral2_800, 0xFF2B2930.toInt())
+        else n(ctx, android.R.color.system_neutral2_100, 0xFFF3EDF7.toInt())
+
+    /** Primary text on the settings page. */
+    fun text(ctx: Context) =
+        if (night(ctx)) n(ctx, android.R.color.system_neutral1_50, 0xFFE6E0E9.toInt())
+        else n(ctx, android.R.color.system_neutral1_900, 0xFF1D1B20.toInt())
+
+    /** Secondary text on the settings page. */
+    fun textDim(ctx: Context) =
+        if (night(ctx)) n(ctx, android.R.color.system_neutral2_200, 0xFFCAC4D0.toInt())
+        else n(ctx, android.R.color.system_neutral2_700, 0xFF49454F.toInt())
+
+    fun isNight(ctx: Context) = night(ctx)
 }

@@ -1,4 +1,4 @@
-package com.example.rootrecents
+package com.twixxty.rootrecents
 
 import android.accessibilityservice.AccessibilityService
 import android.content.Intent
@@ -28,7 +28,7 @@ import kotlin.math.hypot
 class TriggerAccessibilityService : AccessibilityService() {
 
     companion object {
-        const val COMPONENT = "com.example.rootrecents/com.example.rootrecents.TriggerAccessibilityService"
+        const val COMPONENT = "com.twixxty.rootrecents/com.twixxty.rootrecents.TriggerAccessibilityService"
 
         @Volatile
         var instance: TriggerAccessibilityService? = null
@@ -91,6 +91,7 @@ class TriggerAccessibilityService : AccessibilityService() {
     override fun onServiceConnected() {
         super.onServiceConnected()
         instance = this
+        Root.init(applicationContext)
         wm = getSystemService(WindowManager::class.java)
         RecentsActivity.onVisibility = { updateTouchable() }
         rebuild()
@@ -259,9 +260,10 @@ class TriggerAccessibilityService : AccessibilityService() {
         val go = {
             if (!fired) {
                 fired = true
-                anim.run()
+                anim.homeReady()
             }
         }
+        anim.run() // starts at once; the blurred stand-in covers until the home screen is up
         waitingHome = go
         homeSentAt = android.os.SystemClock.uptimeMillis()
         lastPkg = null
@@ -270,7 +272,7 @@ class TriggerAccessibilityService : AccessibilityService() {
         handler.postDelayed({
             if (waitingHome === go) waitingHome = null
             go()
-        }, 380)
+        }, 450)
     }
 
     /** Swipe-up released: close the shade if it is open, otherwise go home. */
@@ -320,7 +322,7 @@ class TriggerAccessibilityService : AccessibilityService() {
                 sx = x; sy = y
                 // start loading the task list now, so it is ready when the switcher opens
                 if (!RecentsActivity.visible) {
-                    prefetchJob = Prefetch.begin(this)
+                    prefetchJob = Prefetch.begin(this, capture = true)
                     checkShade()
                     homeShot = null
                     shotThread = if (config.homeAnim) Thread { homeShot = Root.screenshotFull() }.also { it.start() } else null
@@ -382,7 +384,7 @@ class TriggerAccessibilityService : AccessibilityService() {
     private fun openRecents(peek: Boolean, quick: Boolean = false) {
         if (RecentsActivity.visible) return
         val i = Intent(this, RecentsActivity::class.java)
-            .setAction("com.example.rootrecents.SHOW")
+            .setAction("com.twixxty.rootrecents.SHOW")
             .addFlags(
                 Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_NO_ANIMATION or
                     Intent.FLAG_ACTIVITY_REORDER_TO_FRONT

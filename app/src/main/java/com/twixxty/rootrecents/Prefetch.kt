@@ -1,4 +1,4 @@
-package com.example.rootrecents
+package com.twixxty.rootrecents
 
 import android.content.Context
 import android.graphics.Bitmap
@@ -44,13 +44,13 @@ object Prefetch {
     @Volatile
     private var job: Job? = null
 
-    fun begin(ctx: Context): Job {
+    fun begin(ctx: Context, capture: Boolean = false): Job {
         val app = ctx.applicationContext
         val j = Job(System.currentTimeMillis())
         job = j
         Thread {
             try {
-                run(app, j)
+                run(app, j, capture)
             } catch (e: Exception) {
                 if (j.result == null) j.result = Loaded(emptyList(), false)
             } finally {
@@ -68,14 +68,15 @@ object Prefetch {
         return if (j != null && System.currentTimeMillis() - j.startedAt < 6000) j else null
     }
 
-    private fun run(ctx: Context, j: Job) {
+    private fun run(ctx: Context, j: Job, capture: Boolean) {
         val config = Config.get(ctx)
         val prefs = ctx.getSharedPreferences("recents", Context.MODE_PRIVATE)
         val hidden = (prefs.getStringSet("hidden", emptySet()) ?: emptySet()).toMutableSet()
 
         // A fresh screenshot makes the foreground card as up to date as it can be; it runs alongside.
         var shot: Bitmap? = null
-        val shotThread = if (config.showForeground) {
+        val shell = Root.isShell
+        val shotThread = if (config.showForeground || (shell && capture)) {
             Thread { shot = Root.screenshot() }.also { it.start() }
         } else null
 
@@ -100,10 +101,21 @@ object Prefetch {
 
         // Newest first is irrelevant (one batch), but only ask for files of tasks we show.
         val wanted = listing.tasks.map { it.id }.toSet()
-        val map = HashMap(RecentTasks.loadThumbs(listing.paths.filterKeys { it in wanted }))
-        shotThread?.join()
-        val s = shot
-        if (s != null && listing.fgId != -1 && listing.fgId in wanted) map[listing.fgId] = s
+        val map = HashMap<Int, Bitmap>()
+        if (shell) {
+            // no access to the system's snapshots: use the previews saved while apps were in front
+            shotThread?.join()
+            val s = shot
+            val fg = listing.fgComponent?.substringBefore('/')
+            if (s != null && fg != null && listing.fgId != -1 && capture) ThumbCache.save(ctx, listing.fgId, fg, s)
+            map.putAll(ThumbCache.load(ctx, listing.tasks))
+            if (s != null && listing.fgId in wanted && config.showForeground) map[listing.fgId] = s
+        } else {
+            map.putAll(RecentTasks.loadThumbs(listing.paths.filterKeys { it in wanted }))
+            shotThread?.join()
+            val s = shot
+            if (s != null && listing.fgId != -1 && listing.fgId in wanted) map[listing.fgId] = s
+        }
         j.thumbs = map
     }
 }

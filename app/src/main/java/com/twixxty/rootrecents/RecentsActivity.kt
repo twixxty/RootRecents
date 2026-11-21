@@ -1,4 +1,4 @@
-package com.example.rootrecents
+package com.twixxty.rootrecents
 
 import android.app.Activity
 import android.content.Intent
@@ -20,7 +20,7 @@ import kotlin.math.min
 
 /**
  * Full-screen, translucent overlay: the app switcher.
- * Open it with:  su -c "am start -a com.example.rootrecents.SHOW"
+ * Open it with:  su -c "am start -a com.twixxty.rootrecents.SHOW"
  *
  * The cards live in [CarouselView] (all physics). This class owns the window: blur, tint, loading
  * the task list, and what happens when you tap, dismiss or clear.
@@ -105,6 +105,7 @@ class RecentsActivity : Activity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        Root.init(applicationContext)
         config = Config.get(this)
         quickMode = intent.getBooleanExtra("quick", false)
         peekMode = intent.getBooleanExtra("peek", false) || quickMode

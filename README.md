@@ -19,7 +19,7 @@ Push this folder to a GitHub repo. `.github/workflows/build.yml` builds a debug 
 ## Use
 Trigger with a **root shell** command (MacroDroid shell action, gesture app, ...):
 
-    am start -a com.example.rootrecents.SHOW
+    am start -a com.twixxty.rootrecents.SHOW
 
 Long-press the app icon on the home screen for **Settings**.
 
@@ -69,7 +69,7 @@ you want force-stop (a never-stop list is there too).
   Paste it if a work app still opens in the wrong profile or has no thumbnail.
 - A card shows a big icon instead of a screenshot: no snapshot file exists for that task yet.
 - Cards come back after being dismissed: `removeTask` failed on your ROM. Test with
-  `su -c "CLASSPATH=$(pm path com.example.rootrecents | cut -d: -f2) app_process /system/bin com.example.rootrecents.TaskRemover <taskId>"`
+  `su -c "CLASSPATH=$(pm path com.twixxty.rootrecents | cut -d: -f2) app_process /system/bin com.twixxty.rootrecents.TaskRemover <taskId>"`
   (`<id>:true` means it worked).
 
 ## 0.11
@@ -93,3 +93,11 @@ you want force-stop (a never-stop list is there too).
 
 ## 0.17
 - Faster, snappier go-home animation with tint+blur; thinner screenshot border; split puts chosen app on top; bottom button fades in.
+
+## 0.18
+- Package is now com.twixxty.rootrecents (installs next to the old com.example one; uninstall that once).
+- Fixed signing key (app/rootrecents.jks): every build installs as an update. Keep that file in the repo.
+- Shizuku support for phones without root (Settings > Access). Previews in that mode come from screenshots taken while an app was in front.
+- Apps open via move-task-to-front (same screen as you left it); empty ghost tasks are skipped.
+- Go-home animation is instant with a blurred, tinted backdrop from the first frame.
+- Material 3 expressive settings.

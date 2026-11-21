@@ -1,4 +1,4 @@
-package com.example.rootrecents
+package com.twixxty.rootrecents
 
 import android.os.Handler
 import android.os.Looper
@@ -71,7 +71,7 @@ class RawTouch(
         }
 
         try {
-            val p = ProcessBuilder("su", "-c", "getevent -l $dev").redirectErrorStream(true).start()
+            val p = Root.spawn("getevent -l $dev", true)
             process = p
             val r = BufferedReader(InputStreamReader(p.inputStream))
 

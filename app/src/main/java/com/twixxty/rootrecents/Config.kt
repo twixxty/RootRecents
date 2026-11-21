@@ -1,4 +1,4 @@
-package com.example.rootrecents
+package com.twixxty.rootrecents
 
 import android.content.Context
 import android.content.SharedPreferences
@@ -179,6 +179,11 @@ class Config private constructor(private val sp: SharedPreferences) {
     var homeAnim: Boolean
         get() = sp.getBoolean("homeAnim", true)
         set(v) = sp.edit().putBoolean("homeAnim", v).apply()
+
+    /** How shell commands are run: 0 automatic (root if there is any, else Shizuku), 1 root, 2 Shizuku. */
+    var backend: Int
+        get() = sp.getInt("backend", 0)
+        set(v) = sp.edit().putInt("backend", v).apply()
 
     // ---- derived values used by the physics ----
 

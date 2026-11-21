@@ -24,5 +24,5 @@ jobs:
 
       - uses: actions/upload-artifact@v4
         with:
-          name: RootRecents-debug-apk
+          name: RootRecents-apk
           path: app/build/outputs/apk/debug/*.apk

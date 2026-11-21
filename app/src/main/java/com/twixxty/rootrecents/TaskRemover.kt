@@ -1,4 +1,4 @@
-package com.example.rootrecents
+package com.twixxty.rootrecents
 
 /**
  * Runs as root through app_process (see [Actions.removeTasks]) and asks the system to remove tasks
@@ -13,6 +13,10 @@ object TaskRemover {
     @JvmStatic
     fun main(args: Array<String>) {
         val service = taskService()
+        if (args.size == 2 && args[0] == "front") {
+            println("front:" + moveToFront(service, args[1].toIntOrNull() ?: -1))
+            System.exit(0)
+        }
         val method = service?.let { findRemoveTask(it) }
         for (a in args) {
             val id = a.toIntOrNull() ?: continue
@@ -25,6 +29,33 @@ object TaskRemover {
             println("$id:$ok")
         }
         System.exit(0)
+    }
+
+    /** Brings an existing task forward exactly as it was (same screen inside the app). */
+    private fun moveToFront(service: Any?, id: Int): Boolean {
+        if (service == null || id < 0) return false
+        val methods = service.javaClass.methods.filter { it.name == "moveTaskToFront" }
+        for (pkg in listOf("com.android.shell", "android")) {
+            for (m in methods) {
+                try {
+                    val t = m.parameterTypes
+                    val args = arrayOfNulls<Any>(t.size)
+                    var ints = 0
+                    for (i in t.indices) {
+                        args[i] = when {
+                            t[i] == String::class.java -> pkg
+                            t[i] == Int::class.javaPrimitiveType -> if (ints++ == 0) id else 0
+                            else -> null
+                        }
+                    }
+                    m.invoke(service, *args)
+                    return true
+                } catch (e: Throwable) {
+                    // try the next signature / package name
+                }
+            }
+        }
+        return false
     }
 
     private fun taskService(): Any? {

@@ -8,7 +8,7 @@
         android:shortcutLongLabel="@string/shortcut_settings_long">
         <intent
             android:action="android.intent.action.VIEW"
-            android:targetClass="com.example.rootrecents.SettingsActivity"
-            android:targetPackage="com.example.rootrecents" />
+            android:targetClass="com.twixxty.rootrecents.SettingsActivity"
+            android:targetPackage="com.twixxty.rootrecents" />
     </shortcut>
 </shortcuts>

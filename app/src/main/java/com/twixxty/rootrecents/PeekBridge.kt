@@ -1,4 +1,4 @@
-package com.example.rootrecents
+package com.twixxty.rootrecents
 
 /**
  * Hands the finger of the bottom trigger (which owns the touch stream) over to the recents screen
