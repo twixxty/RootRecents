@@ -87,14 +87,14 @@ class RecentsActivity : Activity() {
             } else if (quickMode) {
                 val w = resources.displayMetrics.widthPixels.toFloat()
                 val card = carousel.focusedCard()
-                if (card != null && (lastDx >= w * 0.4f || (qVx > 900f && lastDx >= w * 0.2f))) {
+                if (card != null && (lastDx >= w * 0.5f || (qVx > 1200f && lastDx >= w * 0.3f))) {
                     carousel.peekCancel()
                     openTask(card, false)
                 } else {
                     carousel.peekCancel()
                     closeAnimated()
                 }
-            } else carousel.peekRelease()
+            } else if (carousel.peekRelease()) bottomBtn?.visibility = View.VISIBLE
         }
     }
 
@@ -249,6 +249,21 @@ class RecentsActivity : Activity() {
         }.start()
     }
 
+    /** Puts the foreground app on top and [task] below it, using the system's split screen. */
+    private fun splitBelow(task: RecentTask) {
+        if (launching || closing) return
+        closing = true
+        val appCtx = applicationContext
+        carousel.postDelayed({ finishNoAnim() }, 0)
+        Thread {
+            Thread.sleep(350) // let the foreground app take focus back
+            val ok = TriggerAccessibilityService.instance?.splitScreen() ?: false
+            if (!ok) Actions.splitKey()
+            Thread.sleep(900)
+            Actions.launchAdjacent(task)
+        }.start()
+    }
+
     private fun hideBottomButton() {
         bottomBtn?.visibility = View.GONE
     }
@@ -298,7 +313,7 @@ class RecentsActivity : Activity() {
         }
         if (closing) return
         empty.visibility = View.GONE
-        bottomBtn?.visibility = View.VISIBLE
+        bottomBtn?.visibility = if (peekMode) View.GONE else View.VISIBLE // not while peeking / swiping
         carousel.setTasks(tasks)
         carousel.post {
             if (peekMode) {
@@ -493,6 +508,7 @@ class RecentsActivity : Activity() {
             content.addView(r)
         }
         row("i", "App info") { openAppInfo(task) }
+        row("\u25EB", "Split screen") { splitBelow(task) }
         if (config.bottomButton != 0) row("\u26F6", "Screenshot") { savePreview(card) }
         row("\u2715", "Close") { carousel.dismissCard(card, -1500f) }
         row("\u25A0", "Force stop") {

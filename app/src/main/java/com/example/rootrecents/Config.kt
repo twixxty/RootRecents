@@ -175,6 +175,11 @@ class Config private constructor(private val sp: SharedPreferences) {
     val hiddenAppsSet: Set<String>
         get() = hiddenApps.split(',', ' ', '\n').map { it.trim() }.filter { it.isNotEmpty() }.toSet()
 
+    /** Animate the foreground app shrinking away when a swipe up goes home. */
+    var homeAnim: Boolean
+        get() = sp.getBoolean("homeAnim", true)
+        set(v) = sp.edit().putBoolean("homeAnim", v).apply()
+
     // ---- derived values used by the physics ----
 
     val blur: Int get() = int(BLUR)

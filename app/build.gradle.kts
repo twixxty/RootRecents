@@ -11,8 +11,8 @@ android {
         applicationId = "com.example.rootrecents"
         minSdk = 29
         targetSdk = 34
-        versionCode = 14
-        versionName = "0.14"
+        versionCode = 16
+        versionName = "0.16"
     }
 
     buildTypes {

@@ -89,6 +89,7 @@ class SettingsActivity : Activity() {
             cfg.rawTouch = it
             TriggerAccessibilityService.instance?.rebuild()
         }
+        toggle("Animate the app shrinking away when swiping up to the home screen", cfg.homeAnim) { cfg.homeAnim = it }
         toggle("Show the peek animation while holding", cfg.triggerHold) { cfg.triggerHold = it }
         slider("Peek intensity (how far the cards follow your finger)", Config.PEEK_INTENSITY) { "$it%" }
         toggle("Swipe right along the bottom to show the previous app", cfg.quickSwitch) { cfg.quickSwitch = it }

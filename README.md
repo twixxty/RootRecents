@@ -84,3 +84,9 @@ you want force-stop (a never-stop list is there too).
 
 ## 0.14
 - Quick-switch card 80%, Screenshot in card menu, screenshot saves preview with border flash.
+
+## 0.15
+- Buttons hidden while peeking/swiping, heavier swipe-right, split screen in card menu.
+
+## 0.16
+- Go-home animation: app picture shrinks to the upper third while the home screen unblurs.

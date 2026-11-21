@@ -45,6 +45,12 @@ object Root {
 
     fun available(): Boolean = exec("id").contains("uid=0")
 
+    /** Full-resolution screenshot (for overlays that must match the screen exactly). */
+    fun screenshotFull(): Bitmap? {
+        val bytes = execBytes("screencap -p") ?: return null
+        return BitmapFactory.decodeByteArray(bytes, 0, bytes.size)
+    }
+
     /** A fresh screenshot of whatever is on screen, scaled down. */
     fun screenshot(): Bitmap? {
         val bytes = execBytes("screencap -p") ?: return null
@@ -93,6 +99,19 @@ object Actions {
      * in the same shell command), so the app pops in instead of sliding or zooming in. Returns
      * when the app has started (-W).
      */
+    /** Starts [task] in the other half of split screen (NEW_TASK | LAUNCH_ADJACENT). */
+    fun launchAdjacent(task: RecentTask) {
+        Root.exec(
+            "am start --user ${task.userId} -n '${task.component}' " +
+                "-a android.intent.action.MAIN -c android.intent.category.LAUNCHER -f 0x10001000"
+        )
+    }
+
+    /** Fallback when the accessibility service is not running: the split-screen key combo. */
+    fun splitKey() {
+        Root.exec("input keyevent 171") // KEYCODE_WINDOW (best effort)
+    }
+
     fun launch(ctx: Context, task: RecentTask) {
         val cmd = "a=\$(settings get global window_animation_scale); " +
             "t=\$(settings get global transition_animation_scale); " +

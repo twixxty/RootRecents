@@ -18,6 +18,9 @@ object Prefetch {
     class Job(val startedAt: Long) {
         @Volatile
         var result: Loaded? = null
+        /** Task id of the app in front (-1 if none / the home screen). */
+        @Volatile
+        var fgId = -1
         @Volatile
         var thumbs: Map<Int, Bitmap> = emptyMap()
         val listLatch = CountDownLatch(1)
@@ -85,6 +88,7 @@ object Prefetch {
 
         // Oldest on the left, most recent on the right, like stock.
         val tasks = listing.tasks.reversed()
+        j.fgId = listing.fgId
         j.result = Loaded(tasks, false)
         j.listLatch.countDown()
 

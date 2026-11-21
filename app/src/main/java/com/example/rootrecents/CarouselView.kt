@@ -1301,7 +1301,7 @@ class CarouselView @JvmOverloads constructor(ctx: Context, attrs: AttributeSet? 
             c.ex = peekBase - dp(220f)
             c.ey = 0f
             c.es = 1f
-            c.ea = 1f
+            c.ea = if (c.isClear) 0f else 1f
             c.exv = 0f
             c.eyv = 0f
             c.esv = 0f
@@ -1314,7 +1314,7 @@ class CarouselView @JvmOverloads constructor(ctx: Context, attrs: AttributeSet? 
         peekFx = fx
         peekFy = fy
         peekRawDy = dy
-        peekDx = dx * peekGain * (if (quick) 1.6f else 1f)
+        peekDx = if (quick) dx * peekGain * 1.25f / (1f + 0.45f * (dx.coerceAtLeast(0f) / sw()))  else dx * peekGain
         peekDy = dy * peekGain
     }
 
@@ -1325,17 +1325,23 @@ class CarouselView @JvmOverloads constructor(ctx: Context, attrs: AttributeSet? 
         physics.cancel(peekMotion)
     }
 
-    fun peekRelease() {
-        if (!peeking) return
+    /** Returns true when the cards settle into place, false when the peek was dismissed. */
+    fun peekRelease(): Boolean {
+        if (!peeking) return false
         if (!quick && peekRawDy > dp(70f)) {
             // let go below where the finger started: dismiss
             peekCancel()
             onPeekDismiss?.invoke()
-            return
+            return false
+        }
+        // "Clear all" fades in once the cards are settling
+        cards.firstOrNull { it.isClear }?.let { pill ->
+            physics.start(SpringMotion(pill.ea, 0f, 1f, 8f * omegaScale, 1f, 0.002f, 0.02f) { pill.ea = it })
         }
         peekReleased = true
         busy = false
         physics.start(peekMotion)
+        return true
     }
 
     private val peekMotion = object : Motion() {
@@ -1361,7 +1367,7 @@ class CarouselView @JvmOverloads constructor(ctx: Context, attrs: AttributeSet? 
                     tx = peekBase + peekDx.coerceIn(-w, w) * (0.25f + 0.75f * k)
                     ty = 0.55f * peekDy * (0.3f + 0.7f * k)
                     ts = 1f - 0.2f * up * (0.4f + 0.6f * k)
-                    omega = (10f + 22f * k) * omegaScale
+                    omega = (if (quick) 6f + 9f * k else 10f + 22f * k) * omegaScale
                     zt = 0.7f
                 }
                 for (i in 0 until n) {
