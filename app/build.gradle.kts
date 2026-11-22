@@ -11,8 +11,8 @@ android {
         applicationId = "com.twixxty.rootrecents"
         minSdk = 29
         targetSdk = 34
-        versionCode = 24
-        versionName = "0.24"
+        versionCode = 25
+        versionName = "0.25"
     }
 
     // One fixed signing key for every build (debug and release), so each new APK installs as an

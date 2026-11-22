@@ -118,3 +118,6 @@ you want force-stop (a never-stop list is there too).
 
 ## 0.24
 - Stock-like triggering (only with the nav bar showing, not on the lock screen), landscape support, rotated landscape previews, misclick protection.
+
+## 0.25
+- Fix: trigger dead after 0.24 (nav-bar detection). Stock-like mode is now opt-in.

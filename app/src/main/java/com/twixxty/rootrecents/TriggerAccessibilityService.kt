@@ -223,13 +223,10 @@ class TriggerAccessibilityService : AccessibilityService() {
         val p = WindowManager.LayoutParams(
             1, 1, WindowManager.LayoutParams.TYPE_ACCESSIBILITY_OVERLAY,
             WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or
-                WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE or
-                WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN or
-                WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS,
+                WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE,
             PixelFormat.TRANSLUCENT
         )
-        p.gravity = Gravity.BOTTOM or Gravity.START
-        p.fitInsetsTypes = 0
+        p.gravity = Gravity.TOP or Gravity.START
         try {
             wm.addView(v, p)
             probe = v
@@ -372,6 +369,7 @@ class TriggerAccessibilityService : AccessibilityService() {
             RecentsActivity.rawPull?.invoke(action, x, y)
             return
         }
+        if (action == MotionEvent.ACTION_DOWN) ignoring = false // a new touch always starts clean
         if (ignoring) {
             if (action == MotionEvent.ACTION_UP || action == MotionEvent.ACTION_CANCEL) ignoring = false
             return

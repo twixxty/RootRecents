@@ -202,7 +202,7 @@ class Config private constructor(private val sp: SharedPreferences) {
 
     /** Like the stock gestures: only react while the navigation bar / gesture bar is showing. */
     var stockLike: Boolean
-        get() = sp.getBoolean("stockLike", true)
+        get() = sp.getBoolean("stockLike", false)
         set(v) = sp.edit().putBoolean("stockLike", v).apply()
 
     /** Swiping up (or up and hold) first shows a toast; it only happens if you do it again. */

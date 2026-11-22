@@ -131,7 +131,7 @@ class SettingsActivity : Activity() {
             cfg.rawTouch = it
             TriggerAccessibilityService.instance?.rebuild()
         }
-        toggle("Only work like the stock gestures (only while the navigation bar is showing; swipe it into view first in full-screen apps)", cfg.stockLike) {
+        toggle("Only work like the stock gestures (experimental: only while the navigation bar is showing; swipe it into view first in full-screen apps)", cfg.stockLike) {
             cfg.stockLike = it
             TriggerAccessibilityService.instance?.rebuild()
         }
