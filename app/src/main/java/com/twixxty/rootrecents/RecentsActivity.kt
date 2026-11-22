@@ -65,6 +65,7 @@ class RecentsActivity : Activity() {
 
     private var launching = false
     private var closing = false
+    private var closeGen = 0
 
     private var loaded: List<RecentTask>? = null
     private var shown = false
@@ -166,16 +167,25 @@ class RecentsActivity : Activity() {
         super.onNewIntent(intent)
         setIntent(intent)
         if (closing && !launching) {
-            // Asked to open again while still sliding away: drop this instance and start a fresh one.
-            val again = Intent(intent)
-            finishNoAnim()
-            android.os.Handler(android.os.Looper.getMainLooper()).postDelayed({
-                try {
-                    applicationContext.startActivity(again.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
-                } catch (e: Exception) {
-                    // nothing to do
-                }
-            }, 60)
+            // Asked to open again while still sliding away: cancel the close and start over in place.
+            closeGen++
+            closing = false
+            physics.cancel(emptyM)
+            empty.visibility = View.GONE
+            carousel.visibility = View.VISIBLE
+            carousel.resetExit()
+            quickMode = intent.getBooleanExtra("quick", false)
+            peekMode = intent.getBooleanExtra("peek", false) || quickMode
+            carousel.quick = quickMode
+            shown = false
+            loaded = null
+            carousel.alpha = 0f
+            current = this
+            visible = true
+            rawPull = { a, _, y -> carousel.rawPull(a, y) }
+            onVisibility?.invoke(true)
+            animateBackdrop(1f)
+            load()
             return
         }
         if (!closing && !launching && !PeekBridge.isActive) {
@@ -472,14 +482,15 @@ class RecentsActivity : Activity() {
         releaseTrigger()
         // close once both the cards have left and the blur is gone
         var pending = 2
-        val one = { if (--pending == 0) finishNoAnim() }
+        val g = closeGen
+        val one = { if (g == closeGen && --pending == 0) finishNoAnim() }
         if (carousel.visibility == View.VISIBLE && carousel.taskCount() > 0) carousel.playExit { one() } else one()
         physics.cancel(emptyM)
         if (empty.visibility == View.VISIBLE) {
             physics.start(SpringMotion(empty.alpha, 0f, 0f, 16f, 1f, 0.01f, 0.05f) { empty.alpha = it })
         }
         animateBackdrop(0f) { one() }
-        carousel.postDelayed({ finishNoAnim() }, 1400) // safety net
+        carousel.postDelayed({ if (g == closeGen) finishNoAnim() }, 1400) // safety net
     }
 
     /** The screen's corner radius in pixels: detected (Android 12+), or the manual setting. */

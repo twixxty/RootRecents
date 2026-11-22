@@ -1201,6 +1201,13 @@ class CarouselView @JvmOverloads constructor(ctx: Context, attrs: AttributeSet? 
 
     private var exitStarted = false
 
+    /** Forget a started exit (recents was asked to open again while it was closing). */
+    fun resetExit() {
+        exitStarted = false
+        busy = false
+        exitT = 0f
+    }
+
     /**
      * The tapped card grows until its thumbnail fills the screen (used when the overlay window is
      * not available). [onReached] is called when it is almost there.

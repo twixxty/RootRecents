@@ -139,3 +139,6 @@ you want force-stop (a never-stop list is there too).
 
 ## v0.30
 - Re-opening recents while it is still closing starts a fresh instance; an old closing instance no longer resets shared trigger/peek state.
+
+## v0.31
+- Opening again while closing now cancels the close and restarts in place (no relaunch), so peek works right after closing.
