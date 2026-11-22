@@ -164,6 +164,7 @@ class SettingsActivity : Activity() {
         )
 
         section("Tools")
+        button("Check for updates") { checkUpdates(true) }
         button("Open recents now") {
             startActivity(Intent(this, RecentsActivity::class.java))
         }
@@ -183,6 +184,76 @@ class SettingsActivity : Activity() {
         note(
             "Open from a root shell with:\nam start -a com.twixxty.rootrecents.SHOW\n\n" +
                 "Settings are read each time recents opens."
+        )
+
+        checkUpdates(false)
+    }
+
+    private fun checkUpdates(manual: Boolean) {
+        if (manual) Toast.makeText(this, "Checking for updates...", Toast.LENGTH_SHORT).show()
+        AppUpdater.checkUpdate(this) { result ->
+            if (isFinishing || isDestroyed) return@checkUpdate
+            result.onSuccess { info ->
+                if (info != null) {
+                    showUpdateDialog(info)
+                } else if (manual) {
+                    Toast.makeText(this, "You're up to date (v${AppUpdater.currentVersion(this)})", Toast.LENGTH_SHORT).show()
+                }
+            }.onFailure { err ->
+                if (manual) {
+                    Toast.makeText(this, "Update check failed: ${err.message}", Toast.LENGTH_LONG).show()
+                }
+            }
+        }
+    }
+
+    private fun showUpdateDialog(info: AppUpdater.UpdateInfo) {
+        val msg = StringBuilder()
+        if (info.changelog.isNotBlank()) {
+            msg.append(info.changelog).append("\n\n")
+        }
+        val mb = if (info.size > 0) String.format("%.1f MB", info.size / (1024f * 1024f)) else ""
+        if (mb.isNotEmpty()) {
+            msg.append("Size: $mb")
+        }
+
+        MaterialAlertDialogBuilder(this)
+            .setTitle("Update available: v${info.tagName}")
+            .setMessage(msg.toString().trim())
+            .setPositiveButton("Download & Install") { _, _ ->
+                startDownload(info)
+            }
+            .setNegativeButton("Later", null)
+            .show()
+    }
+
+    private fun startDownload(info: AppUpdater.UpdateInfo) {
+        val progressText = TextView(this).apply {
+            text = "Downloading update... 0%"
+            setPadding(dp(24), dp(16), dp(24), dp(16))
+            setTextAppearance(com.google.android.material.R.style.TextAppearance_Material3_BodyMedium)
+            setTextColor(aOnSurface)
+        }
+        val dialog = MaterialAlertDialogBuilder(this)
+            .setTitle("Updating RootRecents")
+            .setView(progressText)
+            .setCancelable(false)
+            .show()
+
+        AppUpdater.downloadAndInstall(
+            this,
+            info,
+            onProgress = { pct ->
+                if (!isFinishing && !isDestroyed) {
+                    progressText.text = if (pct >= 0) "Downloading update... $pct%" else "Downloading update..."
+                }
+            },
+            onComplete = { res ->
+                dialog.dismiss()
+                res.onFailure { err ->
+                    Toast.makeText(this, "Download failed: ${err.message}", Toast.LENGTH_LONG).show()
+                }
+            }
         )
     }
 
