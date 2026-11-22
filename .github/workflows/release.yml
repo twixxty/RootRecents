@@ -1,0 +1,79 @@
+name: Release
+
+# Run manually (Actions -> Release -> Run workflow). Builds the signed release APK
+# and publishes a GitHub Release with the APK attached.
+on:
+  workflow_dispatch:
+    inputs:
+      version_name:
+        description: "Version name (e.g. 0.32)"
+        required: true
+        default: "0.32"
+        type: string
+      changelog:
+        description: "Changelog (release notes)"
+        required: false
+        default: ""
+        type: string
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    name: Build & Publish Release
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 17
+
+      - name: Setup Gradle
+        uses: gradle/actions/setup-gradle@v3
+        with:
+          gradle-version: 8.13
+
+      - name: Build signed release APK
+        run: gradle assembleRelease --stacktrace
+
+      - name: Collect release APK
+        run: |
+          set -euo pipefail
+          version="${{ inputs.version_name }}"
+          version="${version#v}"
+          mkdir -p release-apks
+          apk=$(ls app/build/outputs/apk/release/*.apk 2>/dev/null | head -n 1 || ls app/build/outputs/apk/debug/*.apk 2>/dev/null | head -n 1)
+          cp "$apk" "release-apks/RootRecents-v${version}.apk"
+          ls -la release-apks
+
+      - name: Prepare release notes
+        env:
+          CHANGELOG: ${{ inputs.changelog }}
+          VERSION: ${{ inputs.version_name }}
+        run: |
+          if [ -n "$CHANGELOG" ]; then
+            printf '%s\n' "$CHANGELOG" > release-notes.md
+          else
+            echo "RootRecents v${VERSION}" > release-notes.md
+          fi
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: RootRecents-v${{ inputs.version_name }}-apk
+          path: release-apks/*.apk
+
+      - name: Publish GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: v${{ inputs.version_name }}
+          name: RootRecents v${{ inputs.version_name }}
+          body_path: release-notes.md
+          generate_release_notes: true
+          files: release-apks/*.apk
