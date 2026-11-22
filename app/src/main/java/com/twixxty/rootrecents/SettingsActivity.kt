@@ -135,7 +135,7 @@ class SettingsActivity : Activity() {
             cfg.stockLike = it
             TriggerAccessibilityService.instance?.rebuild()
         }
-        toggle("Misclick protection (a swipe up, or swipe up and hold, only shows a hint; do it again to trigger)", cfg.misclick) { cfg.misclick = it }
+        toggle("Misclick protection (in full-screen apps only: a swipe up, or swipe up and hold, shows a hint; do it again to trigger)", cfg.misclick) { cfg.misclick = it }
         toggle("Blur the screen while going home (the screen blurs, the system's home animation plays, then it clears)", cfg.homeAnim) { cfg.homeAnim = it }
         slider("Home: blur strength", Config.HOME_BLUR) { "$it%" }
         slider("Home: time to blur", Config.HOME_BLUR_IN) { "$it ms" }

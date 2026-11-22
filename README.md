@@ -121,3 +121,6 @@ you want force-stop (a never-stop list is there too).
 
 ## 0.25
 - Fix: trigger dead after 0.24 (nav-bar detection). Stock-like mode is now opt-in.
+
+## 0.26
+- Misclick protection only in full-screen apps.

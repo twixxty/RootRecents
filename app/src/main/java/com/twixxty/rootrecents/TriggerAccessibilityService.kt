@@ -46,6 +46,10 @@ class TriggerAccessibilityService : AccessibilityService() {
     @Volatile
     private var navVisible = true
     private var ignoring = false
+
+    /** The app in front has hidden the system bars (immersive / full-screen). */
+    @Volatile
+    private var fullscreen = false
     private var lastArm = 0L
     private var prefetchJob: Prefetch.Job? = null
 
@@ -214,6 +218,7 @@ class TriggerAccessibilityService : AccessibilityService() {
         val v = View(this)
         v.setOnApplyWindowInsetsListener { _, ins ->
             val vis = ins.isVisible(android.view.WindowInsets.Type.navigationBars())
+            fullscreen = !vis || !ins.isVisible(android.view.WindowInsets.Type.statusBars())
             if (vis != navVisible) {
                 navVisible = vis
                 handler.post { updateTouchable() }
@@ -245,6 +250,7 @@ class TriggerAccessibilityService : AccessibilityService() {
         }
         probe = null
         navVisible = true
+        fullscreen = false
         raw?.stop()
         raw = null
         // never leave the recents screen waiting for a release that can no longer come
@@ -462,7 +468,7 @@ class TriggerAccessibilityService : AccessibilityService() {
 
     /** Misclick protection: the first swipe only shows a toast, repeating it within 2.5 s does it. */
     private fun armed(msg: String): Boolean {
-        if (!config.misclick) return true
+        if (!config.misclick || !fullscreen) return true // only in full-screen apps
         val now = android.os.SystemClock.uptimeMillis()
         if (now - lastArm <= 2500L) {
             lastArm = 0L
