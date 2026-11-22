@@ -21,7 +21,11 @@ data class RecentTask(
     val icon: Drawable,
     val thumb: Bitmap?,
     /** True for the app that was on screen when the switcher opened. */
-    val foreground: Boolean
+    val foreground: Boolean,
+    /** True if all activities in this task were finished (e.g. app closed with Back). */
+    val empty: Boolean = false,
+    /** Resolved launcher component name (e.g. "package/class"), or null if same as component */
+    val launchComponent: String? = null
 )
 
 /**
@@ -40,6 +44,8 @@ object RecentTasks {
     private val blockUserRe = Regex("""\buserId=(\d+)""")
     private val effUidRe = Regex("""effectiveUid=u(\d+)a""")
     private val numActRe = Regex("""numActivities=(\d+)""")
+    private val szRe = Regex("""\bsz=(\d+)""")
+    private val emptyActsRe = Regex("""Activities=\[\s*\]""")
     private val visibleRe = Regex("""visible=(true|false)""")
     private val realActivity = Regex("""realActivity=([\w.]+)/([\w.$]+)""")
     private val cmp = Regex("""cmp=([\w.]+)/([\w.$]+)""")
@@ -55,7 +61,8 @@ object RecentTasks {
         val pkg: String,
         val cls: String,
         val visible: Boolean?,
-        val type: String?
+        val type: String?,
+        val empty: Boolean = false
     ) {
         val isHome: Boolean get() = type == "home"
         val bestGuessUser: Int get() = headerUser ?: blockUser ?: effUser ?: 0
@@ -119,7 +126,8 @@ object RecentTasks {
             tasks.add(
                 RecentTask(
                     id = p.id, userId = userId, pkg = p.pkg, component = "${p.pkg}/$cls",
-                    label = res.first, icon = res.second, thumb = null, foreground = p.id == fgId
+                    label = res.first, icon = res.second, thumb = null, foreground = p.id == fgId,
+                    empty = p.empty, launchComponent = res.third
                 )
             )
         }
@@ -164,19 +172,22 @@ object RecentTasks {
         return map
     }
 
-    /** Label + icon for [pkg] as installed in [userId]; work apps come back with the badge. */
+    /** Label + icon + launcher component for [pkg] as installed in [userId]; work apps come back with the badge. */
     private fun resolve(
         ctx: Context,
         pkg: String,
         userId: Int,
         handle: UserHandle?
-    ): Pair<CharSequence, Drawable>? {
+    ): Triple<CharSequence, Drawable, String?>? {
         val pm = ctx.packageManager
         if (userId != 0 && handle != null) {
             try {
                 val la = ctx.getSystemService(LauncherApps::class.java)
                 val info = la?.getActivityList(pkg, handle)?.firstOrNull()
-                if (info != null) return Pair(info.label, info.getBadgedIcon(0))
+                if (info != null) {
+                    val comp = info.componentName.flattenToShortString()
+                    return Triple(info.label, info.getBadgedIcon(0), comp)
+                }
             } catch (e: Exception) {
                 // fall through to PackageManager
             }
@@ -189,7 +200,12 @@ object RecentTasks {
                 icon = pm.getUserBadgedIcon(icon, handle)
                 label = pm.getUserBadgedLabel(label, handle)
             }
-            Pair(label, icon)
+            val comp = try {
+                pm.getLaunchIntentForPackage(pkg)?.component?.flattenToShortString()
+            } catch (e: Exception) {
+                null
+            }
+            Triple(label, icon, comp)
         } catch (e: Exception) {
             null
         }
@@ -209,6 +225,8 @@ object RecentTasks {
             val type = taskType.find(header)?.groupValues?.get(1)
             val headerUser = userRe.find(header)?.groupValues?.get(1)?.toIntOrNull()
             val visible = visibleRe.find(header)?.groupValues?.get(1)?.let { it == "true" }
+            val sz = szRe.find(header)?.groupValues?.get(1)?.toIntOrNull()
+            var emptyActs = false
 
             // Collect the block until the next "Recent #" line.
             var pkg: String? = null
@@ -227,14 +245,15 @@ object RecentTasks {
                     }
                 }
                 if (numActs == null) numActs = numActRe.find(line)?.groupValues?.get(1)?.toIntOrNull()
+                if (!emptyActs && emptyActsRe.containsMatchIn(line)) emptyActs = true
                 if (blockUser == null) blockUser = blockUserRe.find(line)?.groupValues?.get(1)?.toIntOrNull()
                 if (effUser == null) effUser = effUidRe.find(line)?.groupValues?.get(1)?.toIntOrNull()
                 j++
             }
 
-            // numActivities=0: an empty shell of a task (a "ghost"), nothing to go back to
-            if (id != null && pkg != null && cls != null && pkg != ownPkg && numActs != 0) {
-                out.add(Parsed(id, headerUser, blockUser, effUser, pkg, cls, visible, type))
+            val isEmpty = (numActs == 0) || (sz == 0) || emptyActs
+            if (id != null && pkg != null && cls != null && pkg != ownPkg) {
+                out.add(Parsed(id, headerUser, blockUser, effUser, pkg, cls, visible, type, isEmpty))
             }
             i = j
         }

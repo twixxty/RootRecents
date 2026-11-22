@@ -281,7 +281,7 @@ object Actions {
     fun forceStop(tasks: List<RecentTask>, neverStop: Set<String>) {
         for (t in tasks) {
             if (t.pkg in neverStop) continue
-            Root.exec("am force-stop --user ${t.userId} ${t.pkg}")
+            Root.exec("/system/bin/am force-stop --user ${t.userId} ${t.pkg}")
         }
     }
 
@@ -294,7 +294,7 @@ object Actions {
     /** Starts [task] in the other half of split screen (NEW_TASK | LAUNCH_ADJACENT). */
     fun launchAdjacent(user: Int, component: String) {
         Root.exec(
-            "am start --user $user -n '$component' " +
+            "/system/bin/am start --user $user -n '$component' " +
                 "-a android.intent.action.MAIN -c android.intent.category.LAUNCHER -f 0x10001000"
         )
     }
@@ -329,26 +329,31 @@ object Actions {
         // forward instantly (the app is exactly where it was, e.g. Settings stays on its page).
         // Only if that is not possible is the app started fresh.
         Root.exec("settings put global window_animation_scale 0; settings put global transition_animation_scale 0")
-        val front = Helper.front(task.id)
+        val front = if (task.empty) false else Helper.front(task.id)
+        val targetComp = task.launchComponent ?: task.component
         val cmd = (if (front == true) "" else
-            "am start -W --user ${task.userId} -n '${task.component}' " +
-                "-a android.intent.action.MAIN -c android.intent.category.LAUNCHER -f $LAUNCH_FLAGS; ") +
+            "/system/bin/am start -W --user ${task.userId} -n '$targetComp' " +
+                "-a android.intent.action.MAIN -f $LAUNCH_FLAGS; ") +
             "sleep 0.25; " +
             "( sleep 0.5; settings put global window_animation_scale $a; " +
             "settings put global transition_animation_scale $t ) >/dev/null 2>&1 &"
         val out = Root.execAll(cmd)
-        if (out.contains("Error", ignoreCase = true) || out.contains("Exception")) {
-            val msg = out.lines().firstOrNull { it.isNotBlank() && !it.startsWith("Starting") } ?: out
-            val app = ctx.applicationContext
-            Handler(Looper.getMainLooper()).post {
-                Toast.makeText(app, "Couldn't open (user ${task.userId}): ${msg.take(120)}", Toast.LENGTH_LONG).show()
+        if (out.contains("Error", ignoreCase = true) || out.contains("Exception") || out.contains("unable to resolve", ignoreCase = true)) {
+            val fallback = "/system/bin/am start --user ${task.userId} -a android.intent.action.MAIN -c android.intent.category.LAUNCHER -p ${task.pkg} -f $LAUNCH_FLAGS"
+            val fallbackOut = Root.execAll(fallback)
+            if (fallbackOut.contains("Error", ignoreCase = true) || fallbackOut.contains("Exception")) {
+                val msg = out.lines().firstOrNull { it.isNotBlank() && !it.startsWith("Starting") } ?: out
+                val app = ctx.applicationContext
+                Handler(Looper.getMainLooper()).post {
+                    Toast.makeText(app, "Couldn't open (user ${task.userId}): ${msg.take(120)}", Toast.LENGTH_LONG).show()
+                }
             }
         }
     }
 
     fun openAppInfo(task: RecentTask) {
         Root.exec(
-            "am start --user ${task.userId} -a android.settings.APPLICATION_DETAILS_SETTINGS " +
+            "/system/bin/am start --user ${task.userId} -a android.settings.APPLICATION_DETAILS_SETTINGS " +
                 "-d package:${task.pkg} -f 0x10010000"
         )
     }
@@ -384,6 +389,6 @@ object Actions {
 
     /** Starts the recents screen from a place that may not be allowed to start activities. */
     fun startRecents(extras: String = "") {
-        Root.exec("am start -n com.twixxty.rootrecents/.RecentsActivity -a com.twixxty.rootrecents.SHOW $extras -f 0x10010000")
+        Root.exec("/system/bin/am start -n com.twixxty.rootrecents/.RecentsActivity -a com.twixxty.rootrecents.SHOW $extras -f 0x10010000")
     }
 }

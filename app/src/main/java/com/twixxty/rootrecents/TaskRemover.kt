@@ -69,9 +69,37 @@ object TaskRemover {
         System.exit(0)
     }
 
-    /** Brings an existing task forward exactly as it was (same screen inside the app). */
+    /** Brings an existing task forward exactly as it was, or restarts it if it was closed with Back. */
     private fun moveToFront(service: Any?, id: Int): Boolean {
         if (service == null || id < 0) return false
+
+        // 1. First try startActivityFromRecents:
+        // SystemUI / Launcher3 Recents uses this. It brings running tasks to front,
+        // and re-launches tasks that were closed by pressing Back (empty activities stack).
+        val recentsMethods = service.javaClass.methods.filter { it.name == "startActivityFromRecents" }
+        for (m in recentsMethods) {
+            try {
+                val t = m.parameterTypes
+                val args = arrayOfNulls<Any>(t.size)
+                for (i in t.indices) {
+                    args[i] = when {
+                        t[i] == Int::class.javaPrimitiveType -> id
+                        else -> null
+                    }
+                }
+                val res = m.invoke(service, *args)
+                if (res is Int) {
+                    // START_SUCCESS = 0, START_TASK_TO_FRONT = 2, START_DELIVERED_TO_TOP = 3
+                    if (res >= 0) return true
+                } else if (res == null) {
+                    return true
+                }
+            } catch (t: Throwable) {
+                // fall through
+            }
+        }
+
+        // 2. Fall back to moveTaskToFront
         val methods = service.javaClass.methods.filter { it.name == "moveTaskToFront" }
         for (pkg in listOf("com.android.shell", "android")) {
             for (m in methods) {

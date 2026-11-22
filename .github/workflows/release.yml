@@ -6,9 +6,9 @@ on:
   workflow_dispatch:
     inputs:
       version_name:
-        description: "Version name (e.g. 0.32)"
+        description: "Version name (e.g. 0.33)"
         required: true
-        default: "0.32"
+        default: "0.33"
         type: string
       changelog:
         description: "Changelog (release notes)"
