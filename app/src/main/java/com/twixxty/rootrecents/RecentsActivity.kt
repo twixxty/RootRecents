@@ -369,8 +369,10 @@ class RecentsActivity : Activity() {
         }.start()
         Thread {
             val res = job.await()
-            // Give the screenshots a moment so the cards open with their pictures already in.
-            val early = res != null && !res.noRoot && res.tasks.isNotEmpty() && job.waitThumbs(700)
+            // In peek mode, show the cards immediately without waiting for thumbnails.
+            // In normal entry mode, give screenshots a brief window so cards can open with pictures.
+            val wait = if (peekMode) 0L else 200L
+            val early = res != null && !res.noRoot && res.tasks.isNotEmpty() && job.waitThumbs(wait)
             runOnUiThread {
                 if (isDestroyed || isFinishing) return@runOnUiThread
                 if (res == null || res.noRoot) {
@@ -381,7 +383,7 @@ class RecentsActivity : Activity() {
                     fgUser = job.fgUser
                     loaded = res.tasks
                     maybeShow()
-                    if (early) carousel.setThumbs(job.thumbs)
+                    if (early || job.thumbs.isNotEmpty()) carousel.setThumbs(job.thumbs)
                 }
             }
             if (!early) {
@@ -412,7 +414,7 @@ class RecentsActivity : Activity() {
         empty.visibility = View.GONE
         if (peekMode) bottomBtn?.visibility = View.GONE else showBottomButton() // not while peeking / swiping
         carousel.setTasks(tasks)
-        carousel.post {
+        val start = {
             if (peekMode) {
                 // The finger is still down on the trigger: the cards peek in and follow it.
                 carousel.alpha = 1f
@@ -433,6 +435,7 @@ class RecentsActivity : Activity() {
                 animateBackdrop(1f)
             }
         }
+        if (carousel.isLaidOut) start() else carousel.post(start)
     }
 
     private fun showEmpty() {

@@ -142,3 +142,6 @@ you want force-stop (a never-stop list is there too).
 
 ## v0.31
 - Opening again while closing now cancels the close and restarts in place (no relaunch), so peek works right after closing.
+
+## v0.32
+- Fix: cards peek in instantly when swiping up and holding, without waiting for background screenshot capture.

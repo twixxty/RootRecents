@@ -120,6 +120,7 @@ object Prefetch {
             if (s != null && listing.fgId in wanted && config.showForeground) map[listing.fgId] = s
         } else {
             map.putAll(RecentTasks.loadThumbs(listing.paths.filterKeys { it in wanted }))
+            j.thumbs = HashMap(map)
             shotThread?.join()
             val s = shot
             if (s != null && listing.fgId != -1 && listing.fgId in wanted) map[listing.fgId] = s
