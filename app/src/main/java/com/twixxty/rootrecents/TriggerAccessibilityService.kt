@@ -41,15 +41,13 @@ class TriggerAccessibilityService : AccessibilityService() {
     private lateinit var config: Config
     private val handler = Handler(Looper.getMainLooper())
     private var raw: RawTouch? = null
-    private var probe: View? = null
 
+    /** The app in front has hidden the navigation bar (full-screen): found out through root. */
     @Volatile
-    private var navVisible = true
+    private var navHidden = false
     private var ignoring = false
 
-    /** The app in front has hidden the system bars (immersive / full-screen). */
-    @Volatile
-    private var fullscreen = false
+    private val pollRunnable = Runnable { checkShade(false) }
     private var lastArm = 0L
     private var prefetchJob: Prefetch.Job? = null
 
@@ -117,7 +115,13 @@ class TriggerAccessibilityService : AccessibilityService() {
     override fun onAccessibilityEvent(event: AccessibilityEvent?) {
         if (event?.eventType == AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED) {
             val pkg = event.packageName?.toString()
-            if (pkg != null && pkg != packageName && pkg != "com.android.systemui") lastPkg = pkg
+            if (pkg != null && pkg != packageName && pkg != "com.android.systemui") {
+                lastPkg = pkg
+                if (config.stockLike || config.misclick) {
+                    handler.removeCallbacks(pollRunnable)
+                    handler.postDelayed(pollRunnable, 700) // a different app may be full-screen
+                }
+            }
         }
         val go = waitingHome ?: return
         if (event?.eventType != AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED) return
@@ -156,8 +160,6 @@ class TriggerAccessibilityService : AccessibilityService() {
         holdMs = config.int(Config.TRIG_HOLD).toLong()
         peekOn = config.triggerHold
         slopPx = ViewConfiguration.get(this).scaledTouchSlop.toFloat()
-
-        addProbe()
 
         val v = View(this)
         v.setOnTouchListener { _, e -> onTouch(e) }
@@ -209,48 +211,9 @@ class TriggerAccessibilityService : AccessibilityService() {
         }
     }
 
-    /**
-     * A 1px invisible window whose only job is to hear whether the navigation bar is showing
-     * (apps in full-screen hide it; stock gestures then need a first swipe to bring it back).
-     */
-    private fun addProbe() {
-        if (android.os.Build.VERSION.SDK_INT < 30) return
-        val v = View(this)
-        v.setOnApplyWindowInsetsListener { _, ins ->
-            val vis = ins.isVisible(android.view.WindowInsets.Type.navigationBars())
-            fullscreen = !vis || !ins.isVisible(android.view.WindowInsets.Type.statusBars())
-            if (vis != navVisible) {
-                navVisible = vis
-                handler.post { updateTouchable() }
-            }
-            ins
-        }
-        val p = WindowManager.LayoutParams(
-            1, 1, WindowManager.LayoutParams.TYPE_ACCESSIBILITY_OVERLAY,
-            WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or
-                WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE,
-            PixelFormat.TRANSLUCENT
-        )
-        p.gravity = Gravity.TOP or Gravity.START
-        try {
-            wm.addView(v, p)
-            probe = v
-        } catch (e: Exception) {
-            // then the bar is simply assumed to be showing
-        }
-    }
-
     private fun removeStrip() {
-        probe?.let {
-            try {
-                wm.removeViewImmediate(it)
-            } catch (e: Exception) {
-                // already gone
-            }
-        }
-        probe = null
-        navVisible = true
-        fullscreen = false
+        handler.removeCallbacks(pollRunnable)
+        navHidden = false
         raw?.stop()
         raw = null
         // never leave the recents screen waiting for a release that can no longer come
@@ -274,7 +237,7 @@ class TriggerAccessibilityService : AccessibilityService() {
         val v = strip ?: return
         val p = lp ?: return
         val flag = WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE
-        val blocked = RecentsActivity.visible || (config.stockLike && !navVisible)
+        val blocked = RecentsActivity.visible || (config.stockLike && navHidden)
         val want = if (blocked) p.flags or flag else p.flags and flag.inv()
         if (want != p.flags) {
             p.flags = want
@@ -292,11 +255,12 @@ class TriggerAccessibilityService : AccessibilityService() {
     }
 
     /** Is the notification shade / quick settings pulled down? (best effort, through root) */
-    private fun checkShade() {
-        shadeOpen = false
-        shadeCheck = Thread {
+    private fun checkShade(resetShade: Boolean = true) {
+        if (resetShade) shadeOpen = false
+        val t = Thread {
             val out = Root.exec(
-                "dumpsys window | grep -E 'mCurrentFocus|mFocusedWindow'; dumpsys statusbar | grep -i -E 'expanded'"
+                "dumpsys window | grep -E 'mCurrentFocus|mFocusedWindow|InsetsSource'; " +
+                    "dumpsys statusbar | grep -i -E 'expanded'"
             )
             val focusShade = out.lines().any {
                 (it.contains("mCurrentFocus") || it.contains("mFocusedWindow")) &&
@@ -305,7 +269,28 @@ class TriggerAccessibilityService : AccessibilityService() {
             val flag = Regex("(?i)(expandedvisible|panelexpanded|shadeexpanded|isexpanded)\\s*[=:]\\s*true")
                 .containsMatchIn(out)
             shadeOpen = focusShade || flag
-        }.also { it.start() }
+
+            // Is the navigation bar hidden (an app in full-screen)? The window manager lists the
+            // bar as an inset source with a visible=true/false flag.
+            val vis = out.lines()
+                .filter {
+                    it.contains("InsetsSource", true) &&
+                        (it.contains("NAVIGATION_BAR") || it.contains("navigationBar", true))
+                }
+                .mapNotNull { Regex("visible=(true|false)").find(it)?.groupValues?.get(1) }
+            val hidden = vis.isNotEmpty() && vis.none { it == "true" }
+            if (hidden != navHidden) {
+                navHidden = hidden
+                handler.post { updateTouchable() }
+            }
+            handler.post {
+                handler.removeCallbacks(pollRunnable)
+                // while hidden, keep looking so we notice when the bar is swiped back into view
+                if (navHidden && (config.stockLike || config.misclick)) handler.postDelayed(pollRunnable, 1200)
+            }
+        }
+        shadeCheck = t
+        t.start()
     }
 
     private fun collapseShade() {
@@ -382,8 +367,10 @@ class TriggerAccessibilityService : AccessibilityService() {
         }
         if (action == MotionEvent.ACTION_DOWN) {
             val locked = getSystemService(android.app.KeyguardManager::class.java)?.isKeyguardLocked == true
-            if (locked || (config.stockLike && !navVisible)) {
+            if (locked || (config.stockLike && navHidden)) {
                 ignoring = true // the stock gesture would not do anything here either
+                // the swipe probably brings the bar back: look again shortly
+                handler.postDelayed({ checkShade(false) }, 500)
                 return
             }
         }
@@ -468,7 +455,7 @@ class TriggerAccessibilityService : AccessibilityService() {
 
     /** Misclick protection: the first swipe only shows a toast, repeating it within 2.5 s does it. */
     private fun armed(msg: String): Boolean {
-        if (!config.misclick || !fullscreen) return true // only in full-screen apps
+        if (!config.misclick || !navHidden) return true // only where the navigation bar is hidden
         val now = android.os.SystemClock.uptimeMillis()
         if (now - lastArm <= 2500L) {
             lastArm = 0L

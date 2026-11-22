@@ -124,3 +124,8 @@ you want force-stop (a never-stop list is there too).
 
 ## 0.26
 - Misclick protection only in full-screen apps.
+
+## v0.27
+- Navigation-bar detection now uses root (`dumpsys window` inset sources) instead of an overlay probe, which was unreliable on ColorOS 12. Used by "stock-like" mode and misclick protection.
+- Misclick protection only triggers when the navigation bar is hidden (full-screen apps).
+- Landscape cards rotate portrait previews (and portrait cards rotate landscape previews) instead of letterboxing.

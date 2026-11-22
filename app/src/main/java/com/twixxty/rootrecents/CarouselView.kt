@@ -325,22 +325,22 @@ class CarouselView @JvmOverloads constructor(ctx: Context, attrs: AttributeSet? 
     }
 
     /**
-     * Puts a preview on a card without zooming it: a landscape picture on a portrait card is
-     * turned to fit, and a portrait picture on a landscape card is shown whole (letterboxed).
+     * Puts a preview on a card without zooming it: when the picture and the card have different
+     * orientations (a landscape app on a portrait card, or the other way round) it is turned to fit.
      */
     private fun showBitmap(c: Card, b: Bitmap) {
         val th = c.thumb ?: return
         th.setPadding(0, 0, 0, 0)
-        var shown = b
         val cardPortrait = thumbH > cw
-        if (b.width > b.height && cardPortrait) {
-            val m = android.graphics.Matrix().apply { postRotate(-90f) }
+        val picPortrait = b.height > b.width
+        var shown = b
+        if (picPortrait != cardPortrait && b.width != b.height) {
+            val m = android.graphics.Matrix().apply { postRotate(if (cardPortrait) -90f else 90f) }
             shown = Bitmap.createBitmap(b, 0, 0, b.width, b.height, m, true)
         }
         c.bmp = shown
-        val tooTall = shown.height > shown.width && !cardPortrait
-        th.setBackgroundColor(if (tooTall) 0xFF000000.toInt() else 0)
-        th.scaleType = if (tooTall) ImageView.ScaleType.FIT_CENTER else ImageView.ScaleType.CENTER_CROP
+        th.setBackgroundColor(0)
+        th.scaleType = ImageView.ScaleType.CENTER_CROP
         th.setImageBitmap(shown)
     }
 
