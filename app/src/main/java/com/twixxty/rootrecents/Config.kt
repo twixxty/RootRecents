@@ -48,6 +48,8 @@ class Config private constructor(private val sp: SharedPreferences) {
         val SHOT_BORDER = IntSpec("shotBorder2", 3, 1, 12)
 
         // ---- going home ----
+        /** How strong the blur is while going home. */
+        val HOME_BLUR = IntSpec("homeBlur", 45, 0, 100)
         /** How long (ms) the screen takes to blur before the home animation plays. */
         val HOME_BLUR_IN = IntSpec("homeBlurIn", 160, 0, 600)
         /** Extra wait (ms) once the home screen is up, before the blur starts to clear. */
@@ -197,6 +199,16 @@ class Config private constructor(private val sp: SharedPreferences) {
     var backend: Int
         get() = sp.getInt("backend", 0)
         set(v) = sp.edit().putInt("backend", v).apply()
+
+    /** Like the stock gestures: only react while the navigation bar / gesture bar is showing. */
+    var stockLike: Boolean
+        get() = sp.getBoolean("stockLike", true)
+        set(v) = sp.edit().putBoolean("stockLike", v).apply()
+
+    /** Swiping up (or up and hold) first shows a toast; it only happens if you do it again. */
+    var misclick: Boolean
+        get() = sp.getBoolean("misclick", false)
+        set(v) = sp.edit().putBoolean("misclick", v).apply()
 
     // ---- derived values used by the physics ----
 

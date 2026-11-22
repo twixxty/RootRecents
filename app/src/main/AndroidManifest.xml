@@ -21,7 +21,6 @@
             android:exported="true"
             android:excludeFromRecents="true"
             android:launchMode="singleTask"
-            android:screenOrientation="portrait"
             android:taskAffinity=""
             android:theme="@style/Theme.Recents">
 

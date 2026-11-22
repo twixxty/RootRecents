@@ -16,6 +16,8 @@ import java.io.InputStreamReader
 class RawTouch(
     private val screenW: Int,
     private val screenH: Int,
+    /** Surface.ROTATION_0 / 90 / 180 / 270: the panel itself never rotates, the screen does. */
+    private val rotation: Int,
     private val zonePx: Int,
     private val onPointer: (action: Int, x: Float, y: Float) -> Unit
 ) {
@@ -108,8 +110,16 @@ class RawTouch(
                         ry = value.toLong(16).toInt(); moved = true
                     }
                     type == "EV_SYN" && code == "SYN_REPORT" -> {
-                        val x = if (rx >= 0) rx * screenW.toFloat() / maxX else 0f
-                        val y = if (ry >= 0) ry * screenH.toFloat() / maxY else 0f
+                        val fx = if (rx >= 0) rx.toFloat() / maxX else 0f
+                        val fy = if (ry >= 0) ry.toFloat() / maxY else 0f
+                        val x: Float
+                        val y: Float
+                        when (rotation) {
+                            1 -> { x = fy * screenW; y = (1f - fx) * screenH }
+                            2 -> { x = (1f - fx) * screenW; y = (1f - fy) * screenH }
+                            3 -> { x = (1f - fy) * screenW; y = fx * screenH }
+                            else -> { x = fx * screenW; y = fy * screenH }
+                        }
                         if (wentDown && !down) {
                             down = true
                             ignore = y < screenH - zonePx

@@ -112,3 +112,9 @@ you want force-stop (a never-stop list is there too).
 ## 0.22
 - Go-home: screen blurs, native home animation plays, blur clears (timings adjustable).
 - Cards open with their pictures; bottom buttons: both + icon pill; haptics on swipe/peek; quick-switch open fix; hide-apps list has checkboxes.
+
+## 0.23
+- Home blur strength slider; pill with a single button is now an icon-only pill.
+
+## 0.24
+- Stock-like triggering (only with the nav bar showing, not on the lock screen), landscape support, rotated landscape previews, misclick protection.

@@ -246,9 +246,8 @@ class RecentsActivity : Activity() {
                 })
                 box.addView(item)
             }
-            val single = !(wantShot && wantClear)
-            if (wantShot) add(R.drawable.ic_screenshot, if (single) "Screenshot" else null, "Screenshot") { onShot() }
-            if (wantClear) add(R.drawable.ic_clear_all, if (single) "Clear all" else null, "Clear all") { onClear() }
+            if (wantShot) add(R.drawable.ic_screenshot, null, "Screenshot") { onShot() }
+            if (wantClear) add(R.drawable.ic_clear_all, null, "Clear all") { onClear() }
             b = box
         }
         b.alpha = 0f
@@ -266,7 +265,7 @@ class RecentsActivity : Activity() {
     /** Saves the card's preview image to Pictures/Screenshots and flashes an inner border on it. */
     private fun savePreview(card: CarouselView.Card) {
         val task = card.task ?: return
-        val bmp = card.bmp ?: task.thumb ?: return
+        val bmp = card.orig ?: card.bmp ?: task.thumb ?: return
         carousel.flashBorder(
             card, config.int(Config.SHOT_BORDER) * resources.displayMetrics.density,
             MaterialYou.accent(this)

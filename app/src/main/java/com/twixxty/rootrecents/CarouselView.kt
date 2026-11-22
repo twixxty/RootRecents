@@ -54,6 +54,8 @@ class CarouselView @JvmOverloads constructor(ctx: Context, attrs: AttributeSet? 
         val chev: TextView? = view.findViewById(R.id.chev)
 
         var bmp: Bitmap? = null
+        /** The picture as the system gave it (the card may show a rotated copy). */
+        var orig: Bitmap? = null
         var slot = 0
         var dragY = 0f
         var lift = 0f
@@ -317,12 +319,29 @@ class CarouselView @JvmOverloads constructor(ctx: Context, attrs: AttributeSet? 
         for (c in cards) {
             val t = c.task ?: continue
             val b = map[t.id] ?: continue
-            val th = c.thumb ?: continue
-            c.bmp = b
-            th.setPadding(0, 0, 0, 0)
-            th.scaleType = ImageView.ScaleType.CENTER_CROP
-            th.setImageBitmap(b)
+            c.orig = b
+            showBitmap(c, b)
         }
+    }
+
+    /**
+     * Puts a preview on a card without zooming it: a landscape picture on a portrait card is
+     * turned to fit, and a portrait picture on a landscape card is shown whole (letterboxed).
+     */
+    private fun showBitmap(c: Card, b: Bitmap) {
+        val th = c.thumb ?: return
+        th.setPadding(0, 0, 0, 0)
+        var shown = b
+        val cardPortrait = thumbH > cw
+        if (b.width > b.height && cardPortrait) {
+            val m = android.graphics.Matrix().apply { postRotate(-90f) }
+            shown = Bitmap.createBitmap(b, 0, 0, b.width, b.height, m, true)
+        }
+        c.bmp = shown
+        val tooTall = shown.height > shown.width && !cardPortrait
+        th.setBackgroundColor(if (tooTall) 0xFF000000.toInt() else 0)
+        th.scaleType = if (tooTall) ImageView.ScaleType.FIT_CENTER else ImageView.ScaleType.CENTER_CROP
+        th.setImageBitmap(shown)
     }
 
     private fun bind(c: Card) {
@@ -357,11 +376,11 @@ class CarouselView @JvmOverloads constructor(ctx: Context, attrs: AttributeSet? 
             }
         }
         th.clipToOutline = true
-        c.bmp = t.thumb
+        c.orig = t.thumb
         if (t.thumb != null) {
-            th.scaleType = ImageView.ScaleType.CENTER_CROP
-            th.setImageBitmap(t.thumb)
+            showBitmap(c, t.thumb)
         } else {
+            c.bmp = null
             // No screenshot on disk yet: show the icon big instead.
             th.scaleType = ImageView.ScaleType.CENTER_INSIDE
             th.setImageDrawable(t.icon)

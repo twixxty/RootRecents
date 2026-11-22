@@ -131,7 +131,13 @@ class SettingsActivity : Activity() {
             cfg.rawTouch = it
             TriggerAccessibilityService.instance?.rebuild()
         }
+        toggle("Only work like the stock gestures (only while the navigation bar is showing; swipe it into view first in full-screen apps)", cfg.stockLike) {
+            cfg.stockLike = it
+            TriggerAccessibilityService.instance?.rebuild()
+        }
+        toggle("Misclick protection (a swipe up, or swipe up and hold, only shows a hint; do it again to trigger)", cfg.misclick) { cfg.misclick = it }
         toggle("Blur the screen while going home (the screen blurs, the system's home animation plays, then it clears)", cfg.homeAnim) { cfg.homeAnim = it }
+        slider("Home: blur strength", Config.HOME_BLUR) { "$it%" }
         slider("Home: time to blur", Config.HOME_BLUR_IN) { "$it ms" }
         slider("Home: wait at the home screen before clearing", Config.HOME_HOLD) { "$it ms" }
         slider("Home: time to clear the blur", Config.HOME_BLUR_OUT) { "$it ms" }

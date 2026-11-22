@@ -41,6 +41,12 @@ class TriggerAccessibilityService : AccessibilityService() {
     private lateinit var config: Config
     private val handler = Handler(Looper.getMainLooper())
     private var raw: RawTouch? = null
+    private var probe: View? = null
+
+    @Volatile
+    private var navVisible = true
+    private var ignoring = false
+    private var lastArm = 0L
     private var prefetchJob: Prefetch.Job? = null
 
     private var waitingHome: (() -> Unit)? = null
@@ -73,6 +79,8 @@ class TriggerAccessibilityService : AccessibilityService() {
             // the panel is open: a swipe up just closes it
             state = S.DONE
             collapseShade()
+        } else if (state == S.SWIPED && !armed("Swipe up and hold again to open recents")) {
+            state = S.DONE
         } else if (state == S.SWIPED) {
             if (peekOn) {
                 state = S.PEEK
@@ -84,6 +92,12 @@ class TriggerAccessibilityService : AccessibilityService() {
                 openRecents(false)
             }
         }
+    }
+
+    override fun onConfigurationChanged(newConfig: android.content.res.Configuration) {
+        super.onConfigurationChanged(newConfig)
+        // rotated: the strip / touch mapping must follow the new screen size
+        if (::wm.isInitialized) rebuild()
     }
 
     override fun onServiceConnected() {
@@ -139,6 +153,8 @@ class TriggerAccessibilityService : AccessibilityService() {
         peekOn = config.triggerHold
         slopPx = ViewConfiguration.get(this).scaledTouchSlop.toFloat()
 
+        addProbe()
+
         val v = View(this)
         v.setOnTouchListener { _, e -> onTouch(e) }
         // Flush with the very bottom edge of the display (over the gesture bar), not above it.
@@ -156,7 +172,9 @@ class TriggerAccessibilityService : AccessibilityService() {
         }
         if (config.rawTouch) {
                         val zonePx = (config.int(Config.TRIG_ZONE) * d).toInt()
-            raw = RawTouch(sw, sh, zonePx) { a, px, py -> onPointer(a, px, py) }
+            @Suppress("DEPRECATION")
+            val rot = wm.defaultDisplay.rotation
+            raw = RawTouch(sw, sh, rot, zonePx) { a, px, py -> onPointer(a, px, py) }
                 .also { it.start() }
             return
         }
@@ -187,7 +205,49 @@ class TriggerAccessibilityService : AccessibilityService() {
         }
     }
 
+    /**
+     * A 1px invisible window whose only job is to hear whether the navigation bar is showing
+     * (apps in full-screen hide it; stock gestures then need a first swipe to bring it back).
+     */
+    private fun addProbe() {
+        if (android.os.Build.VERSION.SDK_INT < 30) return
+        val v = View(this)
+        v.setOnApplyWindowInsetsListener { _, ins ->
+            val vis = ins.isVisible(android.view.WindowInsets.Type.navigationBars())
+            if (vis != navVisible) {
+                navVisible = vis
+                handler.post { updateTouchable() }
+            }
+            ins
+        }
+        val p = WindowManager.LayoutParams(
+            1, 1, WindowManager.LayoutParams.TYPE_ACCESSIBILITY_OVERLAY,
+            WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or
+                WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE or
+                WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN or
+                WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS,
+            PixelFormat.TRANSLUCENT
+        )
+        p.gravity = Gravity.BOTTOM or Gravity.START
+        p.fitInsetsTypes = 0
+        try {
+            wm.addView(v, p)
+            probe = v
+        } catch (e: Exception) {
+            // then the bar is simply assumed to be showing
+        }
+    }
+
     private fun removeStrip() {
+        probe?.let {
+            try {
+                wm.removeViewImmediate(it)
+            } catch (e: Exception) {
+                // already gone
+            }
+        }
+        probe = null
+        navVisible = true
         raw?.stop()
         raw = null
         // never leave the recents screen waiting for a release that can no longer come
@@ -211,7 +271,8 @@ class TriggerAccessibilityService : AccessibilityService() {
         val v = strip ?: return
         val p = lp ?: return
         val flag = WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE
-        val want = if (RecentsActivity.visible) p.flags or flag else p.flags and flag.inv()
+        val blocked = RecentsActivity.visible || (config.stockLike && !navVisible)
+        val want = if (blocked) p.flags or flag else p.flags and flag.inv()
         if (want != p.flags) {
             p.flags = want
             try {
@@ -287,6 +348,7 @@ class TriggerAccessibilityService : AccessibilityService() {
                 collapseShade()
                 return@Thread
             }
+            if (!armed("Swipe up again to go home")) return@Thread
             var animate = false
             if (config.homeAnim) {
                 // already on the home screen? then there is nothing to shrink
@@ -309,6 +371,17 @@ class TriggerAccessibilityService : AccessibilityService() {
             forwarding = action != MotionEvent.ACTION_UP && action != MotionEvent.ACTION_CANCEL
             RecentsActivity.rawPull?.invoke(action, x, y)
             return
+        }
+        if (ignoring) {
+            if (action == MotionEvent.ACTION_UP || action == MotionEvent.ACTION_CANCEL) ignoring = false
+            return
+        }
+        if (action == MotionEvent.ACTION_DOWN) {
+            val locked = getSystemService(android.app.KeyguardManager::class.java)?.isKeyguardLocked == true
+            if (locked || (config.stockLike && !navVisible)) {
+                ignoring = true // the stock gesture would not do anything here either
+                return
+            }
         }
         when (action) {
             MotionEvent.ACTION_DOWN -> {
@@ -387,6 +460,19 @@ class TriggerAccessibilityService : AccessibilityService() {
         } catch (e: Throwable) {
             // no vibration then
         }
+    }
+
+    /** Misclick protection: the first swipe only shows a toast, repeating it within 2.5 s does it. */
+    private fun armed(msg: String): Boolean {
+        if (!config.misclick) return true
+        val now = android.os.SystemClock.uptimeMillis()
+        if (now - lastArm <= 2500L) {
+            lastArm = 0L
+            return true
+        }
+        lastArm = now
+        handler.post { android.widget.Toast.makeText(this, msg, android.widget.Toast.LENGTH_SHORT).show() }
+        return false
     }
 
     private fun sideLen() = 48f * resources.displayMetrics.density

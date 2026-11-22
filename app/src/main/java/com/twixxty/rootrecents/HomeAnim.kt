@@ -50,7 +50,7 @@ class HomeAnim(private val ctx: Context, private val config: Config) {
             WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE or
             WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN or
             WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS
-        val canBlur = Build.VERSION.SDK_INT >= 31 && config.blur > 0 && wm.isCrossWindowBlurEnabled
+        val canBlur = Build.VERSION.SDK_INT >= 31 && config.int(Config.HOME_BLUR) > 0 && wm.isCrossWindowBlurEnabled
         if (canBlur) flags = flags or WindowManager.LayoutParams.FLAG_BLUR_BEHIND
         val lp = WindowManager.LayoutParams(
             sw, sh, WindowManager.LayoutParams.TYPE_ACCESSIBILITY_OVERLAY, flags, PixelFormat.TRANSLUCENT
@@ -60,7 +60,7 @@ class HomeAnim(private val ctx: Context, private val config: Config) {
         if (Build.VERSION.SDK_INT >= 28) {
             lp.layoutInDisplayCutoutMode = WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_ALWAYS
         }
-        blurMax = if (canBlur) config.blurRadiusPx.toInt().coerceAtLeast(1) else 0
+        blurMax = if (canBlur) (config.int(Config.HOME_BLUR) * 1.6f).toInt().coerceAtLeast(1) else 0
         tintMax = config.tintAlpha
         if (Build.VERSION.SDK_INT >= 31) lp.blurBehindRadius = 0
         return try {
