@@ -136,3 +136,6 @@ you want force-stop (a never-stop list is there too).
 
 ## v0.29
 - Bottom trigger is released as soon as recents starts closing instead of after the activity fully stops.
+
+## v0.30
+- Re-opening recents while it is still closing starts a fresh instance; an old closing instance no longer resets shared trigger/peek state.

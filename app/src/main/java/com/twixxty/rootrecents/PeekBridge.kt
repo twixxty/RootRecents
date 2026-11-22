@@ -48,7 +48,9 @@ object PeekBridge {
     }
 
     fun detach(l: Listener) {
-        if (listener === l) listener = null
-        active = false
+        if (listener === l) {
+            listener = null
+            active = false
+        }
     }
 }

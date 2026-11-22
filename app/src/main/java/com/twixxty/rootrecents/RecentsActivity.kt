@@ -38,6 +38,9 @@ class RecentsActivity : Activity() {
         @JvmStatic
         var rawPull: ((Int, Float, Float) -> Unit)? = null
 
+        /** The newest instance: an older one that is still closing must not touch the shared state. */
+        private var current: RecentsActivity? = null
+
         @JvmStatic
         var onVisibility: ((Boolean) -> Unit)? = null
     }
@@ -153,6 +156,7 @@ class RecentsActivity : Activity() {
 
     override fun onStart() {
         super.onStart()
+        current = this
         visible = true
         rawPull = { a, _, y -> carousel.rawPull(a, y) }
         onVisibility?.invoke(true)
@@ -161,6 +165,19 @@ class RecentsActivity : Activity() {
     override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
         setIntent(intent)
+        if (closing && !launching) {
+            // Asked to open again while still sliding away: drop this instance and start a fresh one.
+            val again = Intent(intent)
+            finishNoAnim()
+            android.os.Handler(android.os.Looper.getMainLooper()).postDelayed({
+                try {
+                    applicationContext.startActivity(again.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
+                } catch (e: Exception) {
+                    // nothing to do
+                }
+            }, 60)
+            return
+        }
         if (!closing && !launching && !PeekBridge.isActive) {
             // A fresh trigger while already open: start over.
             quickMode = intent.getBooleanExtra("quick", false)
@@ -174,9 +191,11 @@ class RecentsActivity : Activity() {
 
     override fun onStop() {
         super.onStop()
-        visible = false
-        rawPull = null
-        onVisibility?.invoke(false)
+        if (current === this) {
+            visible = false
+            rawPull = null
+            onVisibility?.invoke(false)
+        }
         // Behave like a system overlay: leaving it (home, another app) dismisses it.
         if (!isFinishing) finishNoAnim()
     }
@@ -630,7 +649,7 @@ class RecentsActivity : Activity() {
 
     /** Lets the bottom trigger work again right away, not only once this activity has fully stopped. */
     private fun releaseTrigger() {
-        if (!visible) return
+        if (current !== this || !visible) return
         visible = false
         rawPull = null
         onVisibility?.invoke(false)
