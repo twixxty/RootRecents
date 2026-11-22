@@ -133,3 +133,6 @@ you want force-stop (a never-stop list is there too).
 ## v0.28
 - Trigger follows every rotation change (including landscape left <-> right, which isn't a configuration change) via a display listener.
 - Preview rotation fixed: landscape pictures on portrait cards turn the other way; portrait pictures on landscape cards turn according to which side the phone is rotated.
+
+## v0.29
+- Bottom trigger is released as soon as recents starts closing instead of after the activity fully stops.

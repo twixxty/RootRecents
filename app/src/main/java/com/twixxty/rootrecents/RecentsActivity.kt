@@ -450,6 +450,7 @@ class RecentsActivity : Activity() {
     private fun closeAnimated() {
         if (closing || launching) return
         closing = true
+        releaseTrigger()
         // close once both the cards have left and the blur is gone
         var pending = 2
         val one = { if (--pending == 0) finishNoAnim() }
@@ -627,8 +628,17 @@ class RecentsActivity : Activity() {
         }.start()
     }
 
+    /** Lets the bottom trigger work again right away, not only once this activity has fully stopped. */
+    private fun releaseTrigger() {
+        if (!visible) return
+        visible = false
+        rawPull = null
+        onVisibility?.invoke(false)
+    }
+
     private fun finishNoAnim() {
         if (isFinishing) return
+        releaseTrigger()
         finish()
         overridePendingTransition(0, 0)
     }
