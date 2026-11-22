@@ -47,6 +47,18 @@ class TriggerAccessibilityService : AccessibilityService() {
     private var navHidden = false
     private var ignoring = false
 
+    private var lastRot = 0
+    private var dm: android.hardware.display.DisplayManager? = null
+    private val dl = object : android.hardware.display.DisplayManager.DisplayListener {
+        override fun onDisplayAdded(id: Int) {}
+        override fun onDisplayRemoved(id: Int) {}
+        override fun onDisplayChanged(id: Int) {
+            @Suppress("DEPRECATION")
+            val r = wm.defaultDisplay.rotation
+            if (r != lastRot) rebuild() // also 90 -> 270, which is no configuration change
+        }
+    }
+
     private val pollRunnable = Runnable { checkShade(false) }
     private var lastArm = 0L
     private var prefetchJob: Prefetch.Job? = null
@@ -105,6 +117,8 @@ class TriggerAccessibilityService : AccessibilityService() {
     override fun onServiceConnected() {
         super.onServiceConnected()
         instance = this
+        dm = getSystemService(android.hardware.display.DisplayManager::class.java)
+        dm?.registerDisplayListener(dl, handler)
         Root.init(applicationContext)
         Thread { Helper.start(applicationContext) }.start()
         wm = getSystemService(WindowManager::class.java)
@@ -135,6 +149,7 @@ class TriggerAccessibilityService : AccessibilityService() {
     override fun onInterrupt() {}
 
     override fun onUnbind(intent: Intent?): Boolean {
+        dm?.unregisterDisplayListener(dl)
         removeStrip()
         RecentsActivity.onVisibility = null
         instance = null
@@ -167,20 +182,15 @@ class TriggerAccessibilityService : AccessibilityService() {
         val zone = (config.int(Config.TRIG_ZONE) * d).toInt()
         val sw: Int
         val sh: Int
-        if (Build.VERSION.SDK_INT >= 30) {
-            val b = wm.maximumWindowMetrics.bounds
-            sw = b.width(); sh = b.height()
-        } else {
-            val m = android.util.DisplayMetrics()
-            @Suppress("DEPRECATION")
-            wm.defaultDisplay.getRealMetrics(m)
-            sw = m.widthPixels; sh = m.heightPixels
-        }
+        val m = android.util.DisplayMetrics()
+        @Suppress("DEPRECATION")
+        wm.defaultDisplay.getRealMetrics(m)
+        sw = m.widthPixels; sh = m.heightPixels
+        @Suppress("DEPRECATION")
+        lastRot = wm.defaultDisplay.rotation
         if (config.rawTouch) {
                         val zonePx = (config.int(Config.TRIG_ZONE) * d).toInt()
-            @Suppress("DEPRECATION")
-            val rot = wm.defaultDisplay.rotation
-            raw = RawTouch(sw, sh, rot, zonePx) { a, px, py -> onPointer(a, px, py) }
+            raw = RawTouch(sw, sh, lastRot, zonePx) { a, px, py -> onPointer(a, px, py) }
                 .also { it.start() }
             return
         }

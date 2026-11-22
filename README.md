@@ -129,3 +129,7 @@ you want force-stop (a never-stop list is there too).
 - Navigation-bar detection now uses root (`dumpsys window` inset sources) instead of an overlay probe, which was unreliable on ColorOS 12. Used by "stock-like" mode and misclick protection.
 - Misclick protection only triggers when the navigation bar is hidden (full-screen apps).
 - Landscape cards rotate portrait previews (and portrait cards rotate landscape previews) instead of letterboxing.
+
+## v0.28
+- Trigger follows every rotation change (including landscape left <-> right, which isn't a configuration change) via a display listener.
+- Preview rotation fixed: landscape pictures on portrait cards turn the other way; portrait pictures on landscape cards turn according to which side the phone is rotated.

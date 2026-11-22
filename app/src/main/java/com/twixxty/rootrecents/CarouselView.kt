@@ -328,6 +328,17 @@ class CarouselView @JvmOverloads constructor(ctx: Context, attrs: AttributeSet? 
      * Puts a preview on a card without zooming it: when the picture and the card have different
      * orientations (a landscape app on a portrait card, or the other way round) it is turned to fit.
      */
+    @Suppress("DEPRECATION")
+    private fun previewTurn(cardPortrait: Boolean): Float {
+        if (cardPortrait) return 90f // landscape picture on a portrait card
+        val rot = try {
+            (context.getSystemService(android.content.Context.WINDOW_SERVICE) as android.view.WindowManager)
+                .defaultDisplay.rotation
+        } catch (e: Exception) { 1 }
+        // top of the phone is on the left (rotation 1) -> turn the picture counter-clockwise
+        return if (rot == 3) 90f else -90f
+    }
+
     private fun showBitmap(c: Card, b: Bitmap) {
         val th = c.thumb ?: return
         th.setPadding(0, 0, 0, 0)
@@ -335,7 +346,7 @@ class CarouselView @JvmOverloads constructor(ctx: Context, attrs: AttributeSet? 
         val picPortrait = b.height > b.width
         var shown = b
         if (picPortrait != cardPortrait && b.width != b.height) {
-            val m = android.graphics.Matrix().apply { postRotate(if (cardPortrait) -90f else 90f) }
+            val m = android.graphics.Matrix().apply { postRotate(previewTurn(cardPortrait)) }
             shown = Bitmap.createBitmap(b, 0, 0, b.width, b.height, m, true)
         }
         c.bmp = shown
